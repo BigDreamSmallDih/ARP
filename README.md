@@ -45,20 +45,20 @@ for the security model.
 
 Everything installs, tests and builds on GitHub Actions. You need nothing installed on your own device.
 
-1. **Run the bootstrap workflow.** In the repository, open Actions, choose **Bootstrap lockfile**, and
-   run it on the branch that holds this code. It resolves dependencies, writes `package-lock.json`,
-   checks the lockfile, reinstalls with `npm ci`, then runs lint, typecheck, tests and both builds.
-2. **Read the results.** The run summary lists each check. The `bootstrap-reports` artifact holds the
-   full logs and the `package-lock` artifact holds the lockfile.
-3. **Commit the lockfile.** When everything passes, run the workflow again on a non-default branch
-   with `commit_lockfile` enabled. It resolves dependencies again, runs every check against the new
-   lockfile, and commits `package-lock.json` to that branch only if all of them pass. If a lockfile is
-   already committed and you want to replace it, also enable `regenerate`.
-4. **Use the regular CI.** With a lockfile committed, `ci.yml` runs on every push to `main` and every
-   pull request. It verifies the lockfile and installs with `npm ci`.
+1. **Push to a `phase-1/**` branch.** The **Bootstrap lockfile** workflow starts by itself. It
+   resolves dependencies, writes `package-lock.json`, checks the lockfile, reinstalls with `npm ci`,
+   then runs lint, typecheck, tests and both builds. You can also start it from the Actions tab once
+   the workflow file exists on the default branch.
+2. **Read the results.** The run summary lists each check, and the end of every failed log appears as
+   an annotation on the run. The `bootstrap-reports` artifact holds the full logs.
+3. **Review the lockfile.** When every check passes, the workflow commits `package-lock.json` to that
+   branch as a bot commit, so the lockfile appears in the pull request diff. Manual runs commit only
+   with `commit_lockfile` enabled, and replace an existing lockfile only with `regenerate` enabled.
+4. **Use the regular CI.** With a lockfile committed, `ci.yml` runs on every pull request and every
+   push to `main`. It verifies the lockfile and installs with `npm ci`.
 
-Until a lockfile is committed, `ci.yml` fails at its first step with a message saying so. That is
-expected.
+If a lockfile is not committed yet, `ci.yml` fails at its first step with a message saying so. That
+is expected.
 
 ## Running locally (optional)
 

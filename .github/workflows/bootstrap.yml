@@ -1,10 +1,13 @@
 name: Bootstrap lockfile
 
-# Generates package-lock.json on a GitHub runner, checks it, and runs every check
-# against it. Run this once, review the lockfile artifact, then commit it. The regular
-# CI workflow installs with `npm ci` from that committed file.
+# Generates package-lock.json on a GitHub runner, verifies it, and runs every check against
+# it. On a push to a phase-1/** branch, or when started manually with commit_lockfile, a
+# passing run commits the lockfile to that branch so it shows up in the pull request diff.
+# The regular CI workflow then installs with `npm ci` from the committed file.
 
 on:
+  push:
+    branches: ['phase-1/**']
   workflow_dispatch:
     inputs:
       regenerate:
@@ -28,7 +31,29 @@ defaults:
     shell: bash
 
 jobs:
+  guard:
+    name: Check for an existing lockfile
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decide whether to bootstrap
+        id: decide
+        env:
+          REGENERATE: ${{ inputs.regenerate }}
+        run: |
+          if [ -f package-lock.json ] && [ "$REGENERATE" != "true" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::package-lock.json already exists, so there is nothing to bootstrap. The CI workflow covers this branch. Start this workflow manually with regenerate enabled to replace the lockfile."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
   bootstrap:
+    needs: guard
+    if: ${{ needs.guard.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -38,24 +63,19 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Refuse to overwrite an existing lockfile
-        if: ${{ !inputs.regenerate }}
-        run: |
-          if [ -f package-lock.json ]; then
-            echo "::error::package-lock.json already exists. Use the CI workflow, or rerun with regenerate enabled."
-            exit 1
-          fi
-
       - name: Resolve dependencies and write package-lock.json
+        id: install
         run: |
           mkdir -p reports
           rm -f package-lock.json
           npm install --no-audit --no-fund 2>&1 | tee reports/install.log
 
       - name: Inspect the lockfile
+        id: inspect
         run: node scripts/verify-lockfile.mjs 2>&1 | tee reports/lockfile.log
 
       - name: Reinstall from the lockfile with npm ci
+        id: reinstall
         run: |
           rm -rf node_modules
           npm ci --no-audit --no-fund 2>&1 | tee reports/ci-install.log
@@ -124,6 +144,32 @@ jobs:
             echo "Logs and the lockfile are attached to this run as artifacts."
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Show the end of each failed log as an annotation
+        if: always()
+        env:
+          INSTALL: ${{ steps.install.outcome }}
+          INSPECT: ${{ steps.inspect.outcome }}
+          REINSTALL: ${{ steps.reinstall.outcome }}
+          LINT: ${{ steps.lint.outcome }}
+          TYPECHECK: ${{ steps.typecheck.outcome }}
+          TEST: ${{ steps.test.outcome }}
+          BUILD_GATEWAY: ${{ steps.build_gateway.outcome }}
+          BUILD_DASHBOARD: ${{ steps.build_dashboard.outcome }}
+        run: |
+          annotate() {
+            if [ "$1" = "failure" ]; then
+              node scripts/annotate-log.mjs "$2" "$3" "${4:-40}"
+            fi
+          }
+          annotate "$INSTALL" "npm install failed" reports/install.log
+          annotate "$INSPECT" "Lockfile verification failed" reports/lockfile.log
+          annotate "$REINSTALL" "npm ci failed" reports/ci-install.log
+          annotate "$LINT" "Lint failed" reports/lint.log 60
+          annotate "$TYPECHECK" "Typecheck failed" reports/typecheck.log 60
+          annotate "$TEST" "Unit tests failed" reports/test.log 80
+          annotate "$BUILD_GATEWAY" "Gateway build failed" reports/build-gateway.log
+          annotate "$BUILD_DASHBOARD" "Dashboard build failed" reports/build-dashboard.log
+
       - name: Fail when a check failed
         if: ${{ steps.lint.outcome == 'failure' || steps.typecheck.outcome == 'failure' || steps.test.outcome == 'failure' || steps.build_gateway.outcome == 'failure' || steps.build_dashboard.outcome == 'failure' }}
         run: |
@@ -131,7 +177,7 @@ jobs:
           exit 1
 
       - name: Commit the lockfile
-        if: ${{ inputs.commit_lockfile && steps.lint.outcome == 'success' && steps.typecheck.outcome == 'success' && steps.test.outcome == 'success' && steps.build_gateway.outcome == 'success' && steps.build_dashboard.outcome == 'success' }}
+        if: ${{ (github.event_name == 'push' || inputs.commit_lockfile) && steps.lint.outcome == 'success' && steps.typecheck.outcome == 'success' && steps.test.outcome == 'success' && steps.build_gateway.outcome == 'success' && steps.build_dashboard.outcome == 'success' }}
         env:
           BRANCH: ${{ github.ref_name }}
         run: |
