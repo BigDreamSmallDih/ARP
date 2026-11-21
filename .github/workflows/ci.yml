@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  static:
+    name: Lint and typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+
+  test:
+    name: Unit tests (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Run tests
+        run: npm run test:ci
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-node${{ matrix.node }}
+          path: reports/
+          if-no-files-found: ignore
+
+  build-gateway:
+    name: Build gateway
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Build
+        run: npm run build:gateway
+      - name: Start the built bundle and check /health
+        run: |
+          mkdir -p reports
+          PORT=18787 node backend/gateway/dist/server.js > reports/gateway.log 2>&1 &
+          pid=$!
+          ok=0
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18787/health; then
+              ok=1
+              break
+            fi
+            sleep 0.5
+          done
+          kill "$pid" || true
+          wait "$pid" 2>/dev/null || true
+          cat reports/gateway.log
+          test "$ok" = 1
+      - name: Upload gateway bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-dist
+          path: backend/gateway/dist/
+          if-no-files-found: error
+
+  build-dashboard:
+    name: Build dashboard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Build
+        run: npm run build:dashboard
+      - name: Upload dashboard build
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-dist
+          path: apps/dashboard/dist/
+          if-no-files-found: error
