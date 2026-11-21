@@ -10,14 +10,16 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 const HEALTH = { status: 'ok', version: '0.1.0', uptimeSeconds: 12, timestamp: '2026-01-01T00:00:00.000Z' };
 
-function clientWith(fetchImpl: typeof fetch, token: string | undefined = 'admin-token') {
+function clientWith(fetchImpl: typeof fetch, token: string | undefined) {
   return createClient({ baseUrl: 'https://gateway.example.com/', token, fetchImpl });
 }
+
+const TOKEN = 'admin-token';
 
 describe('createClient', () => {
   it('requests the public health endpoint without credentials', async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(HEALTH));
-    await expect(clientWith(fetchImpl).health()).resolves.toEqual(HEALTH);
+    await expect(clientWith(fetchImpl, TOKEN).health()).resolves.toEqual(HEALTH);
 
     const [url, init] = fetchImpl.mock.calls[0] ?? [];
     expect(url).toBe('https://gateway.example.com/health');
@@ -26,7 +28,7 @@ describe('createClient', () => {
 
   it('sends the bearer token on admin endpoints', async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse({ agents: [] }));
-    await expect(clientWith(fetchImpl).agents()).resolves.toEqual([]);
+    await expect(clientWith(fetchImpl, TOKEN).agents()).resolves.toEqual([]);
 
     const [url, init] = fetchImpl.mock.calls[0] ?? [];
     expect(url).toBe('https://gateway.example.com/api/agents');
@@ -50,7 +52,7 @@ describe('createClient', () => {
     const fetchImpl = vi.fn<typeof fetch>(async () =>
       jsonResponse({ error: { code: 'unauthorized', message: 'Missing or invalid admin credential' } }, 401),
     );
-    const failure = await clientWith(fetchImpl).status().catch((error: unknown) => error);
+    const failure = await clientWith(fetchImpl, TOKEN).status().catch((error: unknown) => error);
 
     expect(failure).toBeInstanceOf(ApiError);
     expect(failure).toMatchObject({ status: 401, code: 'unauthorized' });
@@ -58,7 +60,7 @@ describe('createClient', () => {
 
   it('rejects a body that does not match the schema', async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse({ status: 'ok' }));
-    const failure = await clientWith(fetchImpl).health().catch((error: unknown) => error);
+    const failure = await clientWith(fetchImpl, TOKEN).health().catch((error: unknown) => error);
     expect(failure).toMatchObject({ code: 'invalid_response' });
   });
 
@@ -72,13 +74,13 @@ describe('createClient', () => {
       permissions: [],
     };
     const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse({ agents: [agent] }));
-    const failure = await clientWith(fetchImpl).agents().catch((error: unknown) => error);
+    const failure = await clientWith(fetchImpl, TOKEN).agents().catch((error: unknown) => error);
     expect(failure).toMatchObject({ code: 'invalid_response' });
   });
 
   it('handles a non-JSON error page', async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => new Response('Bad Gateway', { status: 502 }));
-    const failure = await clientWith(fetchImpl).health().catch((error: unknown) => error);
+    const failure = await clientWith(fetchImpl, TOKEN).health().catch((error: unknown) => error);
     expect(failure).toMatchObject({ status: 502, code: 'invalid_response' });
   });
 
@@ -86,7 +88,7 @@ describe('createClient', () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => {
       throw new TypeError('Failed to fetch');
     });
-    const failure = await clientWith(fetchImpl).health().catch((error: unknown) => error);
+    const failure = await clientWith(fetchImpl, TOKEN).health().catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(NetworkError);
   });
 });

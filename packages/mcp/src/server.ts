@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { ZodRawShape } from 'zod';
 import { GATEWAY_NAME, GATEWAY_VERSION, toErrorBody, toGatewayError } from '@arp/shared';
 import {
   executeTool,
@@ -22,13 +23,15 @@ export function createMcpServer(options: McpServerOptions): McpServer {
   const server = new McpServer({ name: GATEWAY_NAME, version: GATEWAY_VERSION });
 
   for (const tool of options.tools ?? TOOLS) {
+    const inputShape: ZodRawShape = tool.input.shape;
+    const outputShape: ZodRawShape = tool.output.shape;
     server.registerTool(
       tool.name,
       {
         title: tool.title,
         description: tool.description,
-        inputSchema: tool.input.shape,
-        outputSchema: tool.output.shape,
+        inputSchema: inputShape,
+        outputSchema: outputShape,
       },
       async (args, extra): Promise<CallToolResult> => {
         try {

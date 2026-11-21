@@ -14,7 +14,7 @@ try {
   text = `No log was written to ${file}.`;
 }
 
-const ansi = /\u001b\[[0-9;]*m/g;
+const ansi = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
 const excerpt = text.replace(ansi, '').trimEnd().split('\n').slice(-Number(tail)).join('\n');
 const escaped = excerpt.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
 
