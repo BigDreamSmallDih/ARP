@@ -170,6 +170,17 @@ describe('MCP over Streamable HTTP', () => {
     expect(await errorCode(second)).toBe('session_limit_reached');
   });
 
+  it('limits sessions per agent without blocking other agents', async () => {
+    const { url } = await start({ MAX_SESSIONS_PER_AGENT: '1' });
+    await initialize(url, testToken('claude'));
+
+    const second = await post(url, testToken('claude'), INITIALIZE);
+    expect(second.status).toBe(503);
+    expect(await errorCode(second)).toBe('session_limit_reached');
+
+    await initialize(url, testToken('chatgpt'));
+  });
+
   it('closes sessions that stay idle past the TTL', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     const { url, gateway } = await start({ SESSION_IDLE_TTL_SECONDS: '60' });

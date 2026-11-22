@@ -151,7 +151,7 @@ export class McpGateway {
     request: FastifyRequest,
     reply: FastifyReply,
   ): Promise<void> {
-    this.deps.sessions.assertCapacity();
+    this.deps.sessions.assertCapacity(agent.id);
 
     const server = createMcpServer({
       agent,

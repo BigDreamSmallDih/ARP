@@ -54,13 +54,14 @@ describe('loadConfig', () => {
       GATEWAY_TOKEN_GEMINI: testToken('gemini'),
       SESSION_IDLE_TTL_SECONDS: '60',
       MAX_SESSIONS: '5',
+      MAX_SESSIONS_PER_AGENT: '2',
     });
     expect(config).toMatchObject({
       environment: 'production',
       host: '0.0.0.0',
       port: 9000,
       logLevel: 'warn',
-      sessions: { max: 5, idleTtlSeconds: 60 },
+      sessions: { max: 5, maxPerAgent: 2, idleTtlSeconds: 60 },
     });
     expect(config.agentTokens.gemini).toBe(testToken('gemini'));
   });
@@ -79,6 +80,7 @@ describe('loadConfig', () => {
     ['NODE_ENV', 'staging'],
     ['LOG_LEVEL', 'verbose'],
     ['MAX_SESSIONS', '0'],
+    ['MAX_SESSIONS_PER_AGENT', '0'],
     ['SESSION_IDLE_TTL_SECONDS', '5'],
     ['AUDIT_BUFFER_SIZE', '-1'],
     ['DASHBOARD_ORIGIN', 'not a url'],

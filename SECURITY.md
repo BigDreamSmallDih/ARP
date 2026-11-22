@@ -27,7 +27,7 @@ which agent matched. An unset or empty token is not a credential: the agent simp
 
 **Sessions.** A session is bound to the agent that initialised it. Presenting another agent's valid
 token with that session id is refused and audited. Sessions expire after an idle timeout, are capped by
-`MAX_SESSIONS`, and are closed on shutdown.
+`MAX_SESSIONS` overall and `MAX_SESSIONS_PER_AGENT` per agent, and are closed on shutdown.
 
 **Permissions.** Every tool declares a required permission, checked before input is parsed or the
 handler runs. Phase 1 has read-only permissions only.
@@ -40,7 +40,8 @@ credential values never appear in responses. Validation details are returned onl
 `invalid_request`, where they describe the caller's own input.
 
 **Logging.** Requests are logged with the `Authorization` header redacted. Audit events record who did
-what and the outcome, and never contain tokens or tool payloads.
+what and the outcome, and never contain tokens or tool payloads. Failed authentications are kept in
+a separate, smaller in-memory buffer so unauthenticated traffic cannot evict other events.
 
 **Browser access.** CORS is off unless `DASHBOARD_ORIGIN` is set, and then allows only that exact
 origin with `GET` and `OPTIONS`. The dashboard keeps the admin token in session storage only, so it is

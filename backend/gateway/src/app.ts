@@ -38,6 +38,7 @@ export async function createGateway(config: GatewayConfig): Promise<Gateway> {
   });
   const sessions = new SessionStore({
     maxSessions: config.sessions.max,
+    maxSessionsPerAgent: config.sessions.maxPerAgent,
     idleTtlMs: config.sessions.idleTtlSeconds * 1000,
   });
   const adapters = createProviderAdapters(config.providerKeysPresent);

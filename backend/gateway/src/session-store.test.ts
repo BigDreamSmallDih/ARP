@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { GatewayError } from '@arp/shared';
 import { SessionStore } from './session-store';
 
-function setup(options: { maxSessions?: number; idleTtlMs?: number } = {}) {
+function setup(
+  options: { maxSessions?: number; maxSessionsPerAgent?: number; idleTtlMs?: number } = {},
+) {
   let now = 1_000_000;
   const store = new SessionStore({
     maxSessions: options.maxSessions ?? 2,
+    maxSessionsPerAgent: options.maxSessionsPerAgent ?? 2,
     idleTtlMs: options.idleTtlMs ?? 10_000,
     now: () => now,
   });
@@ -80,15 +83,24 @@ describe('SessionStore', () => {
     const { store, advance } = setup({ maxSessions: 1 });
     store.create('s1', 'claude');
 
-    expect(() => store.assertCapacity()).toThrow(GatewayError);
+    expect(() => store.assertCapacity('claude')).toThrow(GatewayError);
     try {
-      store.assertCapacity();
+      store.assertCapacity('claude');
     } catch (error) {
       expect((error as GatewayError).code).toBe('session_limit_reached');
     }
 
     advance(10_001);
-    expect(() => store.assertCapacity()).not.toThrow();
+    expect(() => store.assertCapacity('claude')).not.toThrow();
+  });
+
+  it('limits sessions per agent so one agent cannot take every slot', () => {
+    const { store } = setup({ maxSessions: 4, maxSessionsPerAgent: 2 });
+    store.create('s1', 'claude');
+    store.create('s2', 'claude');
+
+    expect(() => store.assertCapacity('claude')).toThrow(/Agent "claude"/);
+    expect(() => store.assertCapacity('chatgpt')).not.toThrow();
   });
 
   it('closes a session and returns its record once', () => {

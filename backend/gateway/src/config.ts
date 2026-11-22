@@ -15,7 +15,11 @@ export interface GatewayConfig {
   readonly providerKeysPresent: Readonly<Record<ProviderId, boolean>>;
   readonly supabaseConfigured: boolean;
   readonly dashboardOrigin: string | undefined;
-  readonly sessions: { readonly max: number; readonly idleTtlSeconds: number };
+  readonly sessions: {
+    readonly max: number;
+    readonly maxPerAgent: number;
+    readonly idleTtlSeconds: number;
+  };
   readonly auditBufferSize: number;
 }
 
@@ -76,6 +80,7 @@ const envSchema = z
     ),
     SESSION_IDLE_TTL_SECONDS: integer(1800, 30, 86400),
     MAX_SESSIONS: integer(100, 1, 10000),
+    MAX_SESSIONS_PER_AGENT: integer(10, 1, 10000),
     AUDIT_BUFFER_SIZE: integer(500, 1, 100000),
   })
   .superRefine((env, ctx) => {
@@ -140,7 +145,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
     },
     supabaseConfigured: values.SUPABASE_URL !== undefined,
     dashboardOrigin: values.DASHBOARD_ORIGIN,
-    sessions: { max: values.MAX_SESSIONS, idleTtlSeconds: values.SESSION_IDLE_TTL_SECONDS },
+    sessions: {
+      max: values.MAX_SESSIONS,
+      maxPerAgent: values.MAX_SESSIONS_PER_AGENT,
+      idleTtlSeconds: values.SESSION_IDLE_TTL_SECONDS,
+    },
     auditBufferSize: values.AUDIT_BUFFER_SIZE,
   };
 }

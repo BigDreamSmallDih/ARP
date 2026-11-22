@@ -113,7 +113,7 @@ request and response, so no server-initiated streaming is needed. Revisit when a
 events or server notifications.
 
 **One `McpServer` per session.** It lets each server hold its agent's identity directly. The price is
-memory per session, bounded by `MAX_SESSIONS`.
+memory per session, bounded by `MAX_SESSIONS` and `MAX_SESSIONS_PER_AGENT`.
 
 **In-memory sessions and audit.** Simplest thing that works for one instance. Persistence and
 multi-instance support are explicit later work.

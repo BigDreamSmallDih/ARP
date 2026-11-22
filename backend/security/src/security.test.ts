@@ -81,6 +81,32 @@ describe('AuditLog', () => {
     expect(log.recent(0)).toEqual([]);
   });
 
+  it('keeps failed authentications in their own smaller buffer', () => {
+    const log = new AuditLog(8);
+    log.record({ type: 'session.created', outcome: 'success', agentId: 'claude' });
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      log.record({ type: 'auth.failed', outcome: 'denied', errorCode: 'unauthorized' });
+    }
+
+    const events = log.recent(100);
+    expect(events.filter((event) => event.type === 'auth.failed')).toHaveLength(2);
+    expect(events.some((event) => event.type === 'session.created')).toBe(true);
+  });
+
+  it('orders events from both buffers by when they were recorded', () => {
+    const log = new AuditLog(8);
+    log.record({ type: 'tool.call', outcome: 'success', tool: 'first' });
+    log.record({ type: 'auth.failed', outcome: 'denied', errorCode: 'unauthorized' });
+    log.record({ type: 'tool.call', outcome: 'success', tool: 'third' });
+
+    expect(log.recent().map((event) => event.tool ?? event.type)).toEqual([
+      'third',
+      'auth.failed',
+      'first',
+    ]);
+    expect(log.recent(2)).toHaveLength(2);
+  });
+
   it('notifies the listener for every recorded event', () => {
     const listener = vi.fn();
     const log = new AuditLog(5, listener);

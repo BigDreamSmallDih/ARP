@@ -10,6 +10,7 @@ export interface SessionRecord {
 
 export interface SessionStoreOptions {
   readonly maxSessions: number;
+  readonly maxSessionsPerAgent: number;
   readonly idleTtlMs: number;
   readonly now?: () => number;
 }
@@ -18,11 +19,13 @@ export interface SessionStoreOptions {
 export class SessionStore {
   private readonly sessions = new Map<string, SessionRecord>();
   private readonly maxSessions: number;
+  private readonly maxSessionsPerAgent: number;
   private readonly idleTtlMs: number;
   private readonly now: () => number;
 
   constructor(options: SessionStoreOptions) {
     this.maxSessions = options.maxSessions;
+    this.maxSessionsPerAgent = options.maxSessionsPerAgent;
     this.idleTtlMs = options.idleTtlMs;
     this.now = options.now ?? Date.now;
   }
@@ -35,8 +38,23 @@ export class SessionStore {
     return active;
   }
 
-  assertCapacity(): void {
-    if (this.activeCount() >= this.maxSessions) {
+  /** The per-agent limit keeps one agent from using every slot and locking the others out. */
+  assertCapacity(agentId: string): void {
+    let total = 0;
+    let forAgent = 0;
+    for (const record of this.sessions.values()) {
+      if (this.isExpired(record)) continue;
+      total += 1;
+      if (record.agentId === agentId) forAgent += 1;
+    }
+
+    if (forAgent >= this.maxSessionsPerAgent) {
+      throw new GatewayError(
+        'session_limit_reached',
+        `Agent "${agentId}" already has the maximum of ${this.maxSessionsPerAgent} active sessions`,
+      );
+    }
+    if (total >= this.maxSessions) {
       throw new GatewayError(
         'session_limit_reached',
         `The gateway already has the maximum of ${this.maxSessions} active sessions`,

@@ -10,7 +10,7 @@ function build(overrides: Record<string, string> = {}) {
   const config = testConfig(overrides);
   const adapters = createProviderAdapters(config.providerKeysPresent);
   const agents = new AgentRegistry(AGENT_ROSTER, config.agentTokens, adapters);
-  const sessions = new SessionStore({ maxSessions: 10, idleTtlMs: 60_000 });
+  const sessions = new SessionStore({ maxSessions: 10, maxSessionsPerAgent: 5, idleTtlMs: 60_000 });
   const startedAt = new Date(Date.now() - 5_000);
   const services = createGatewayServices({ config, agents, adapters, sessions, startedAt, tools: TOOLS });
   return { services, sessions, config };
