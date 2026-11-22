@@ -1,0 +1,35 @@
+{
+  "name": "ai-roblox-player",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloud-first multi-AI platform built around a central MCP gateway.",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "backend/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "vitest run",
+    "test:ci": "vitest run --reporter=default --reporter=junit --outputFile.junit=reports/junit.xml",
+    "build": "npm run build --workspaces --if-present",
+    "build:gateway": "npm run build -w @arp/gateway",
+    "build:dashboard": "npm run build -w @arp/dashboard",
+    "dev:gateway": "npm run dev -w @arp/gateway",
+    "dev:dashboard": "npm run dev -w @arp/dashboard",
+    "verify:lockfile": "node scripts/verify-lockfile.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.20.0",
+    "@types/node": "^20.17.0",
+    "eslint": "^9.20.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.30.0",
+    "vitest": "^3.2.0"
+  }
+}
