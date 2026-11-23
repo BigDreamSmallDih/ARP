@@ -1,6 +1,6 @@
 import { digestToken, matchesDigest, type TokenDigest } from '@arp/security';
 import type { AgentSummary, Permission, ProviderId } from '@arp/shared';
-import type { ProviderAdapter } from './providers';
+import type { ProviderAdapter } from './adapter';
 import type { AgentDefinition } from './roster';
 
 export interface AgentIdentity {
