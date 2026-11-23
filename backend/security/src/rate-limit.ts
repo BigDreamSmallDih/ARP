@@ -1,3 +1,5 @@
+import { isIPv6 } from 'node:net';
+
 export interface RateLimitDecision {
   readonly allowed: boolean;
   readonly remaining: number;
@@ -9,6 +11,7 @@ export interface RateLimiterOptions {
   readonly windowMs: number;
   /** Bounds memory; the oldest key is evicted once expired entries are gone. */
   readonly maxKeys?: number;
+  /** Milliseconds on a clock that never moves backwards. Defaults to performance.now. */
   readonly now?: () => number;
 }
 
@@ -35,7 +38,7 @@ export class RateLimiter {
     this.limit = options.limit;
     this.windowMs = options.windowMs;
     this.maxKeys = options.maxKeys ?? 10_000;
-    this.now = options.now ?? Date.now;
+    this.now = options.now ?? (() => performance.now());
   }
 
   /** Counts one request against the key. */
@@ -81,4 +84,43 @@ export class RateLimiter {
     }
     this.windows.set(key, window);
   }
+}
+
+/** The eight 16-bit groups of an IPv6 address in any notation, or undefined if it is not one. */
+function ipv6Groups(address: string): number[] | undefined {
+  const bare = address.split('%')[0] ?? address;
+  if (!isIPv6(bare)) return undefined;
+
+  // A dotted IPv4 tail is two groups, not one.
+  const dotted = /(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(bare);
+  let text = bare;
+  if (dotted !== null) {
+    const [a = 0, b = 0, c = 0, d = 0] = dotted.slice(1).map(Number);
+    text = `${bare.slice(0, dotted.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+
+  const [head = '', tail] = text.split('::');
+  const left = head === '' ? [] : head.split(':');
+  const right = tail === undefined || tail === '' ? [] : tail.split(':');
+  const fill = tail === undefined ? 0 : Math.max(0, 8 - left.length - right.length);
+  const groups = [...left, ...Array<string>(fill).fill('0'), ...right].map((group) =>
+    Number.parseInt(group, 16),
+  );
+  return groups.length === 8 ? groups : undefined;
+}
+
+/**
+ * Maps a client address to its rate-limit key. An IPv6 client usually controls a whole /64, so
+ * keying by full address would let it rotate addresses to dodge limits and lockouts. An
+ * IPv4-mapped address (::ffff:a.b.c.d, in any notation) is keyed as that IPv4 address.
+ */
+export function clientKey(address: string): string {
+  const groups = ipv6Groups(address);
+  if (groups === undefined) return address;
+
+  const [g0, g1, g2, g3, g4, g5, high = 0, low = 0] = groups;
+  if ([g0, g1, g2, g3, g4].every((group) => group === 0) && g5 === 0xffff) {
+    return `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`;
+  }
+  return `${[g0, g1, g2, g3].map((group) => (group ?? 0).toString(16)).join(':')}::/64`;
 }

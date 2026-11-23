@@ -1,6 +1,6 @@
 # Reverse proxy for the gateway with automatic HTTPS (Caddy 2).
 # Replace gateway.example.com with your domain, whose DNS points at this host.
-# Run the gateway with HOST=127.0.0.1 and TRUST_PROXY=true so it only accepts the proxy.
+# Run the gateway on the same host with HOST=127.0.0.1 and TRUST_PROXY=true.
 
 gateway.example.com {
 	encode zstd gzip

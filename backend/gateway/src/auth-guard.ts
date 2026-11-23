@@ -1,10 +1,11 @@
-import { RateLimiter, type AuditLog } from '@arp/security';
+import { RateLimiter, clientKey, type AuditLog } from '@arp/security';
 import { GatewayError } from '@arp/shared';
 
 export const AUTH_FAILURE_WINDOW_MS = 15 * 60_000;
 
 /**
- * Locks a client address out after repeated failed authentications. The lockout is checked
+ * Locks a client out after repeated failed authentications. Clients are keyed with clientKey,
+ * so an IPv6 client cannot escape the lockout by switching addresses inside its /64. The lockout is checked
  * before the credential is compared, so guessing a token stops working once the limit is hit.
  */
 export class AuthFailureGuard {
@@ -20,8 +21,8 @@ export class AuthFailureGuard {
     this.audit = audit;
   }
 
-  assertAllowed(client: string, requestId: string): void {
-    const decision = this.limiter.peek(client);
+  assertAllowed(address: string, requestId: string): void {
+    const decision = this.limiter.peek(clientKey(address));
     if (decision.allowed) return;
     this.audit.record({
       type: 'auth.failed',
@@ -34,8 +35,8 @@ export class AuthFailureGuard {
     });
   }
 
-  recordFailure(client: string, requestId: string): void {
-    this.limiter.hit(client);
+  recordFailure(address: string, requestId: string): void {
+    this.limiter.hit(clientKey(address));
     this.audit.record({
       type: 'auth.failed',
       outcome: 'denied',

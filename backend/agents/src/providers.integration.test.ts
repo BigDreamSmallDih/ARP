@@ -38,7 +38,7 @@ describe.each(PROVIDERS)('live $id adapter', ({ id, keyVar, modelVar }) => {
   const settings = settingsFor(keyVar, modelVar);
   const configured = settings.apiKey !== undefined && settings.model !== undefined;
 
-  it.skipIf(!configured)('verifies the key and becomes connected', async () => {
+  it.skipIf(!configured)('verify: the key is accepted and the provider becomes connected', async () => {
     const adapter = adapterFor(id);
     expect(adapter.status().state).toBe('configured');
 
@@ -46,7 +46,7 @@ describe.each(PROVIDERS)('live $id adapter', ({ id, keyVar, modelVar }) => {
     expect(adapter.status().state).toBe('connected');
   });
 
-  it.skipIf(!configured || !PAID)('answers one small message and reports usage', async () => {
+  it.skipIf(!configured || !PAID)('send: one small message is answered and usage is reported', async () => {
     const adapter = adapterFor(id);
     const response = await adapter.send({
       messages: [{ role: 'user', content: 'Reply with the single word: ok' }],

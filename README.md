@@ -88,7 +88,7 @@ documents every variable. The important ones:
 | `GATEWAY_TOKEN_CHATGPT`, `_CLAUDE`, `_GEMINI` | Bearer token each agent uses to connect to `/mcp`. All tokens must differ and be 32+ characters |
 | `OPENAI_API_KEY` + `OPENAI_MODEL`, `ANTHROPIC_API_KEY` + `ANTHROPIC_MODEL`, `GEMINI_API_KEY` + `GEMINI_MODEL` | A provider works only when both its key and model are set. There are no default models. See [docs/PROVIDERS.md](docs/PROVIDERS.md) |
 | `RATE_LIMIT_PER_MINUTE`, `AUTH_FAILURE_LIMIT`, `PROVIDER_CALLS_PER_MINUTE` | Request, failed-login and provider-call limits |
-| `TRUST_PROXY` | `true` only behind your own reverse proxy |
+| `TRUST_PROXY` | `true` only when a reverse proxy on the same host is the sole way in. Then `X-Forwarded-For` is believed only from loopback |
 | `DASHBOARD_ORIGIN` | Browser origin allowed to call the gateway, when the dashboard is hosted separately |
 
 Generate a token with `openssl rand -hex 32`. Never commit a `.env` file.

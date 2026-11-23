@@ -72,8 +72,10 @@ Be aware of these before exposing a gateway to a network:
   untrusted network unencrypted.
 - **Rate limits and lockouts are per process.** They reset on restart. Behind a proxy, set
   `TRUST_PROXY=true`, and only then. With it off, every client behind the proxy shares one address, so
-  one attacker's failed logins can lock out the owner. With it on while the gateway is directly
-  reachable, a client can forge `X-Forwarded-For` to avoid limits.
+  one attacker's failed logins can lock out the owner. With it on, `X-Forwarded-For` is trusted only
+  from loopback, so the proxy must run on the same host as the gateway; a proxy on another host makes
+  every client look like that proxy. IPv6 clients are limited per /64 prefix, which can group unrelated
+  clients that share a prefix.
 - **A lockout also blocks the valid token** from that address until the window passes.
 - **Usage and cost.** Token counts are in memory. Real spending limits must be set at the provider.
 - **Provider integration is verified only by mocks in CI.** The optional live workflow is the only test
