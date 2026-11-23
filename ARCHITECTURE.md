@@ -128,7 +128,10 @@ Three limits apply, all in memory and per process:
 3. `send_message` counts against `PROVIDER_CALLS_PER_MINUTE` for the calling agent.
 
 Refusals use `rate_limited` (HTTP 429 with `Retry-After`, or a tool error carrying `retryAfterSeconds`).
-The client address is the socket address unless `TRUST_PROXY=true`.
+The client key is the socket address unless `TRUST_PROXY=true`, in which case `X-Forwarded-For` is read
+only when the connection comes from loopback, and the rightmost untrusted entry is used. IPv6 clients are
+keyed by their /64 prefix, because one client normally controls the whole prefix, and the limiter
+clock is monotonic so a system clock change cannot extend a lockout.
 
 ### Tool call
 

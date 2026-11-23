@@ -64,9 +64,14 @@ const model = z.preprocess(
     .optional(),
 );
 
+/** zod's default enum error repeats the rejected value, which could be a secret pasted on the wrong line. */
+function oneOf<const T extends readonly [string, ...string[]]>(values: T) {
+  return z.enum(values, { message: `must be one of: ${values.join(', ')}` });
+}
+
 const flag = z.preprocess(
   emptyToUndefined,
-  z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+  oneOf(['true', 'false']).default('false').transform((value) => value === 'true'),
 );
 
 function integer(fallback: number, min: number, max: number) {
@@ -77,13 +82,13 @@ const envSchema = z
   .object({
     NODE_ENV: z.preprocess(
       emptyToUndefined,
-      z.enum(['development', 'test', 'production']).default('development'),
+      oneOf(['development', 'test', 'production']).default('development'),
     ),
     HOST: z.preprocess(emptyToUndefined, z.string().default('127.0.0.1')),
     PORT: integer(8787, 1, 65535),
     LOG_LEVEL: z.preprocess(
       emptyToUndefined,
-      z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+      oneOf(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
     ),
     GATEWAY_ADMIN_TOKEN: secret,
     GATEWAY_TOKEN_CHATGPT: secret,

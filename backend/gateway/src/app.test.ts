@@ -277,6 +277,43 @@ describe('request rate limiting', () => {
     const other = await trusted.app.inject({ method: 'GET', url: '/api/status', headers: forwarded('2.2.2.2') });
     expect(other.statusCode).toBe(200);
   });
+
+  it('ignores X-Forwarded-For from a peer that is not the local proxy, even with TRUST_PROXY on', async () => {
+    const { app } = await start({ RATE_LIMIT_PER_MINUTE: '1', TRUST_PROXY: 'true' });
+    const send = (forwardedFor: string) =>
+      app.inject({
+        method: 'GET',
+        url: '/api/status',
+        headers: { ...admin, 'x-forwarded-for': forwardedFor },
+        remoteAddress: '203.0.113.5',
+      });
+
+    expect((await send('1.1.1.1')).statusCode).toBe(200);
+    expect((await send('2.2.2.2')).statusCode).toBe(429);
+  });
+
+  it('takes the rightmost untrusted address, so a forged leading entry changes nothing', async () => {
+    const { app } = await start({ RATE_LIMIT_PER_MINUTE: '1', TRUST_PROXY: 'true' });
+    const send = (forwardedFor: string) =>
+      app.inject({
+        method: 'GET',
+        url: '/api/status',
+        headers: { ...admin, 'x-forwarded-for': forwardedFor },
+      });
+
+    expect((await send('9.9.9.9, 198.51.100.4')).statusCode).toBe(200);
+    expect((await send('8.8.8.8, 198.51.100.4')).statusCode).toBe(429);
+  });
+
+  it('limits IPv6 clients by /64 so they cannot rotate addresses', async () => {
+    const { app } = await start({ RATE_LIMIT_PER_MINUTE: '1' });
+    const send = (remoteAddress: string) =>
+      app.inject({ method: 'GET', url: '/api/status', headers: admin, remoteAddress });
+
+    expect((await send('2001:db8:1:2::1')).statusCode).toBe(200);
+    expect((await send('2001:db8:1:2:aaaa:bbbb:cccc:dddd')).statusCode).toBe(429);
+    expect((await send('2001:db8:1:3::1')).statusCode).toBe(200);
+  });
 });
 
 describe('authentication lockout', () => {

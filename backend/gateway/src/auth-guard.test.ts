@@ -54,6 +54,15 @@ describe('AuthFailureGuard', () => {
     expect(() => guard.assertAllowed('1.1.1.1', 'r2')).not.toThrow();
   });
 
+  it('treats every address in one IPv6 /64 as the same client', () => {
+    const { guard } = setup(2);
+    guard.recordFailure('2001:db8:1:2::1', 'r1');
+    guard.recordFailure('2001:db8:1:2:ffff:eeee:dddd:cccc', 'r2');
+
+    expect(() => guard.assertAllowed('2001:db8:1:2:1::9', 'r3')).toThrow(GatewayError);
+    expect(() => guard.assertAllowed('2001:db8:1:3::1', 'r4')).not.toThrow();
+  });
+
   it('audits failures and lockouts without recording the client address', () => {
     const { guard, audit } = setup(1);
     guard.recordFailure('203.0.113.9', 'r1');

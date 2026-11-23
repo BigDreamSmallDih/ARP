@@ -37,17 +37,36 @@ Run one area locally with `npx vitest run <path>` if you have Node 20.19 or newe
 ## Integration tests against real providers
 
 `integration.yml` is run by hand from the Actions tab (Run workflow). It never runs on pushes or pull
-requests, so repository secrets are not exposed to forks.
+requests, so secrets are not exposed to forks or to routine CI.
 
-1. Add repository secrets, in pairs per provider: `OPENAI_API_KEY` and `OPENAI_MODEL`,
+Setup, once:
+
+1. Create a repository environment named `live-providers` (Settings, Environments) and add yourself as
+   a required reviewer. Every run then waits for your approval before any secret is released.
+2. In that environment add secrets in pairs, per provider: `OPENAI_API_KEY` and `OPENAI_MODEL`,
    `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`, `GEMINI_API_KEY` and `GEMINI_MODEL`.
-2. Run the workflow. A provider without both secrets is skipped, and if none has both, the run says so
-   and passes without calling anything.
-3. By default each configured provider is only verified, which uses the free model-listing endpoint.
-4. Tick **paid_calls** to also send one small message (at most 64 output tokens) to each configured
-   provider.
+
+Each run:
+
+- **provider** chooses `all`, `openai`, `anthropic` or `gemini`. Only the chosen provider's secrets are
+  passed to the test step, and dependencies are installed before any secret is in the environment.
+  Providers are independent: one failing or missing does not affect the others.
+- **paid_calls** is off by default. Off means each provider is only verified, using the provider's free
+  model-listing endpoint. On also sends one small message (at most 64 output tokens) to each selected
+  provider, which is billable.
+- The run summary lists each provider as `PASS`, `FAIL`, `NOT TESTED` or `NOT RUN`:
+
+| Result | Meaning |
+| --- | --- |
+| `PASS` | The check ran against the real API and succeeded |
+| `FAIL` | The check ran and failed |
+| `NOT TESTED` | No key and model reached the run (not selected, or secrets missing). This is never a pass |
+| `NOT RUN` | The key was checked but the billable call was not enabled |
+
+No report or artifact from this workflow is uploaded.
 
 The workflow file must exist on the default branch before the Run workflow button appears.
 
-A passing integration run is the only evidence that the adapters work against the real APIs. Unit tests
-prove the adapters handle the documented response shapes, not that the providers still return them.
+A `PASS` here is the only evidence that an adapter works against the real API. Unit tests prove the
+adapters handle the documented response shapes, not that the providers still return them. Until a
+provider has been through this workflow, treat it as NOT TESTED.

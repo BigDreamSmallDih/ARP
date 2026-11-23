@@ -1,63 +1,54 @@
 name: Provider integration tests
 
-# Manual only. These tests call the real provider APIs with repository secrets, so they never
-# run on pull requests or pushes. A provider is tested only when both its API key and its model
-# secret exist. The billable call runs only when "paid_calls" is ticked.
+# Manual only. These tests call the real provider APIs with secrets, so they never run on pull
+# requests or pushes. Store the secrets as environment secrets of the "live-providers" environment
+# and add yourself as a required reviewer there, so every run waits for your approval.
+#
+# Each provider is tested on its own and only when both its API key and its model secret reach the
+# run. Anything else is reported as NOT TESTED. The billable call needs "paid_calls" ticked.
 on:
   workflow_dispatch:
     inputs:
+      provider:
+        description: Provider to test
+        type: choice
+        options: [all, openai, anthropic, gemini]
+        default: all
       paid_calls:
-        description: Also send one small message to each configured provider (billable)
+        description: Also send one small message to each selected provider (billable)
         type: boolean
         default: false
 
 permissions:
   contents: read
 
-defaults:
-  run:
-    shell: bash
-
 jobs:
   live:
     name: Live provider checks
     runs-on: ubuntu-latest
+    environment: live-providers
     timeout-minutes: 10
-    env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
-      ARP_INTEGRATION_PAID_CALLS: ${{ inputs.paid_calls }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Look for provider secrets
-        id: secrets
-        run: |
-          found=false
-          for name in OPENAI ANTHROPIC GEMINI; do
-            key="${name}_API_KEY"
-            model="${name}_MODEL"
-            if [ -n "${!key}" ] && [ -n "${!model}" ]; then
-              echo "$name: key and model present"
-              found=true
-            else
-              echo "$name: skipped, needs both ${key} and ${model} secrets"
-            fi
-          done
-          echo "found=$found" >> "$GITHUB_OUTPUT"
-
+      # No secrets are in the environment while dependencies install.
       - name: Set up the project
-        if: steps.secrets.outputs.found == 'true'
         uses: ./.github/actions/setup
 
+      # Only the selected provider's secrets are passed, and only to this step.
       - name: Run integration tests
-        if: steps.secrets.outputs.found == 'true'
-        run: npm run test:integration
+        env:
+          OPENAI_API_KEY: ${{ (inputs.provider == 'all' || inputs.provider == 'openai') && secrets.OPENAI_API_KEY || '' }}
+          OPENAI_MODEL: ${{ (inputs.provider == 'all' || inputs.provider == 'openai') && secrets.OPENAI_MODEL || '' }}
+          ANTHROPIC_API_KEY: ${{ (inputs.provider == 'all' || inputs.provider == 'anthropic') && secrets.ANTHROPIC_API_KEY || '' }}
+          ANTHROPIC_MODEL: ${{ (inputs.provider == 'all' || inputs.provider == 'anthropic') && secrets.ANTHROPIC_MODEL || '' }}
+          GEMINI_API_KEY: ${{ (inputs.provider == 'all' || inputs.provider == 'gemini') && secrets.GEMINI_API_KEY || '' }}
+          GEMINI_MODEL: ${{ (inputs.provider == 'all' || inputs.provider == 'gemini') && secrets.GEMINI_MODEL || '' }}
+          ARP_INTEGRATION_PAID_CALLS: ${{ inputs.paid_calls }}
+        run: |
+          mkdir -p reports
+          npm run test:integration -- --reporter=default --reporter=json --outputFile.json=reports/integration.json
 
-      - name: Nothing to test
-        if: steps.secrets.outputs.found != 'true'
-        run: echo "::notice::No provider has both an API key and a model secret, so no integration test ran."
+      - name: Summarise per provider
+        if: always()
+        run: node scripts/integration-summary.mjs reports/integration.json | tee -a "$GITHUB_STEP_SUMMARY"

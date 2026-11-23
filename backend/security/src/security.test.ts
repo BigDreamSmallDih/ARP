@@ -5,6 +5,7 @@ import {
   AuditLog,
   RateLimiter,
   Secret,
+  clientKey,
   assertPermission,
   digestToken,
   extractBearerToken,
@@ -207,5 +208,30 @@ describe('RateLimiter', () => {
   it('rejects invalid options', () => {
     expect(() => new RateLimiter({ limit: 0, windowMs: 1000 })).toThrow(RangeError);
     expect(() => new RateLimiter({ limit: 1, windowMs: 0 })).toThrow(RangeError);
+  });
+});
+
+describe('clientKey', () => {
+  it.each([
+    ['203.0.113.7', '203.0.113.7'],
+    ['::ffff:203.0.113.7', '203.0.113.7'],
+    ['::ffff:203.0.113.7'.toUpperCase(), '203.0.113.7'],
+    ['2001:db8:1:2:3:4:5:6', '2001:db8:1:2::/64'],
+    ['2001:0db8:0001:0002:aaaa:bbbb:cccc:dddd', '2001:db8:1:2::/64'],
+    ['2001:db8:1:2::1', '2001:db8:1:2::/64'],
+    ['2001:db8::1', '2001:db8:0:0::/64'],
+    ['::1', '0:0:0:0::/64'],
+    ['fe80::1%eth0', 'fe80:0:0:0::/64'],
+  ])('maps %s to %s', (address, expected) => {
+    expect(clientKey(address)).toBe(expected);
+  });
+
+  it('gives every address in one /64 the same key and other prefixes different keys', () => {
+    expect(clientKey('2001:db8:1:2:1111:2222:3333:4444')).toBe(clientKey('2001:db8:1:2:ffff::9'));
+    expect(clientKey('2001:db8:1:3::1')).not.toBe(clientKey('2001:db8:1:2::1'));
+  });
+
+  it('leaves a value that is not an address unchanged', () => {
+    expect(clientKey('unknown')).toBe('unknown');
   });
 });

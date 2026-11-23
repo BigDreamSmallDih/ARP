@@ -1,3 +1,5 @@
+import { isIPv6 } from 'node:net';
+
 export interface RateLimitDecision {
   readonly allowed: boolean;
   readonly remaining: number;
@@ -9,6 +11,7 @@ export interface RateLimiterOptions {
   readonly windowMs: number;
   /** Bounds memory; the oldest key is evicted once expired entries are gone. */
   readonly maxKeys?: number;
+  /** Milliseconds on a clock that never moves backwards. Defaults to performance.now. */
   readonly now?: () => number;
 }
 
@@ -35,7 +38,7 @@ export class RateLimiter {
     this.limit = options.limit;
     this.windowMs = options.windowMs;
     this.maxKeys = options.maxKeys ?? 10_000;
-    this.now = options.now ?? Date.now;
+    this.now = options.now ?? (() => performance.now());
   }
 
   /** Counts one request against the key. */
@@ -81,4 +84,25 @@ export class RateLimiter {
     }
     this.windows.set(key, window);
   }
+}
+
+/**
+ * Maps a client address to its rate-limit key. An IPv6 client usually controls a whole /64, so
+ * keying by full address would let it rotate addresses to dodge limits and lockouts. IPv4-mapped
+ * IPv6 addresses count as the IPv4 address.
+ */
+export function clientKey(address: string): string {
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(address);
+  if (mapped?.[1] !== undefined) return mapped[1];
+
+  const bare = address.split('%')[0] ?? address;
+  if (!isIPv6(bare)) return address;
+
+  const [head = '', tail] = bare.split('::');
+  const left = head === '' ? [] : head.split(':');
+  const right = tail === undefined || tail === '' ? [] : tail.split(':');
+  const zeros = tail === undefined ? 0 : 8 - left.length - right.length;
+  const groups = [...left, ...Array<string>(Math.max(0, zeros)).fill('0'), ...right];
+  const prefix = groups.slice(0, 4).map((group) => Number.parseInt(group, 16).toString(16));
+  return `${prefix.join(':')}::/64`;
 }

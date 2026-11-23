@@ -5,6 +5,7 @@ import { TOOLS } from '@arp/mcp';
 import {
   AuditLog,
   RateLimiter,
+  clientKey,
   digestToken,
   extractBearerToken,
   matchesDigest,
@@ -56,7 +57,8 @@ export async function createGateway(
   const app = Fastify({
     logger: loggerOptions,
     bodyLimit: config.bodyLimitBytes,
-    trustProxy: config.trustProxy,
+    // Only a proxy on this host is believed about X-Forwarded-For; the rightmost untrusted hop wins.
+    trustProxy: config.trustProxy ? 'loopback' : false,
     forceCloseConnections: true,
   });
 
@@ -103,7 +105,7 @@ export async function createGateway(
 
   app.addHook('onRequest', async (request) => {
     if (request.url === '/health') return;
-    const decision = requestLimiter.hit(request.ip);
+    const decision = requestLimiter.hit(clientKey(request.ip));
     if (!decision.allowed) {
       throw new GatewayError('rate_limited', 'Too many requests', {
         retryAfterSeconds: decision.retryAfterSeconds,

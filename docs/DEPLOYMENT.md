@@ -30,13 +30,15 @@ behind a proxy:
 | --- | --- |
 | `NODE_ENV` | `production` |
 | `HOST` | `127.0.0.1`, so only the proxy can reach the gateway |
-| `TRUST_PROXY` | `true`, so rate limits and lockouts see the real client address |
+| `TRUST_PROXY` | `true`, so rate limits and lockouts see the real client address. Requires the proxy on the same host |
 | `GATEWAY_ADMIN_TOKEN`, `GATEWAY_TOKEN_*` | Long random values (`openssl rand -hex 32`), all different |
 | `*_API_KEY`, `*_MODEL` | See [PROVIDERS.md](PROVIDERS.md) |
 | `DASHBOARD_ORIGIN` | The dashboard's origin, only if it is served from another host |
 
-Set `TRUST_PROXY=true` **only** when the gateway is reachable exclusively through your proxy. Otherwise
-a client can send its own `X-Forwarded-For` header and choose the address that rate limits see.
+Set `TRUST_PROXY=true` **only** when the gateway is reachable exclusively through a proxy running on the
+same host. The gateway then reads `X-Forwarded-For` only from connections that come from loopback and
+uses the rightmost address that is not loopback. If the proxy is on another machine, every client will
+look like that machine and share one limit, so this setup is not supported yet.
 
 ## 3. Run
 

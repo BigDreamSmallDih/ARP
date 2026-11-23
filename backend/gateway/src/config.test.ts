@@ -163,6 +163,14 @@ describe('loadConfig', () => {
     expect(issues).toEqual(['GATEWAY_TOKEN_CLAUDE: must differ from GATEWAY_ADMIN_TOKEN']);
   });
 
+  it('never repeats a rejected value in its messages, even for enum fields', () => {
+    const pasted = 'sk-live-pasted-on-the-wrong-line-9876543210';
+    const issues = issuesOf({ LOG_LEVEL: pasted, NODE_ENV: pasted, TRUST_PROXY: pasted });
+    expect(issues).toHaveLength(3);
+    expect(issues.join('\n')).not.toContain(pasted);
+    expect(issues[0]).toContain('must be one of');
+  });
+
   it('reports every problem at once', () => {
     const issues = issuesOf({ PORT: 'abc', LOG_LEVEL: 'verbose', MAX_SESSIONS: '0' });
     expect(issues).toHaveLength(3);
