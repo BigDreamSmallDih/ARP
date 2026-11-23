@@ -202,7 +202,7 @@ export abstract class HttpProviderAdapter implements ProviderAdapter {
       const response = await this.fetchImpl(call.url, { ...call.init, signal });
       status = response.status;
       text = await response.text();
-    } catch (error) {
+    } catch {
       if (timeout.aborted) {
         throw new ProviderFailure('timeout', `no response within ${this.settings.timeoutMs} ms`);
       }

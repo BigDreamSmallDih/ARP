@@ -245,6 +245,7 @@ describe('MCP over Streamable HTTP', () => {
       'get_registered_agents',
       'get_session_status',
       'get_system_status',
+      'send_message',
     ]);
 
     const session = await client.callTool({ name: 'get_session_status', arguments: {} });

@@ -222,7 +222,7 @@ describe('provider verification', () => {
     const providers = fakeProviders();
     const { app } = await start({}, { fetchImpl: providers.fetchImpl });
 
-    const response = await verify(app, 'claude');
+    const response = await verify(app, 'anthropic');
     expect(response.statusCode).toBe(503);
     expect(ErrorBodySchema.parse(response.json()).error.code).toBe('provider_not_configured');
     expect(providers.hosts).toEqual([]);

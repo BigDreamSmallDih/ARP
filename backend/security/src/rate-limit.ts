@@ -48,7 +48,7 @@ export class RateLimiter {
     }
     if (window.count >= this.limit) return this.decision(window, now);
     window.count += 1;
-    return this.decision(window, now);
+    return { allowed: true, remaining: this.limit - window.count, retryAfterSeconds: 0 };
   }
 
   /** Reports the state of the key without counting a request. */
