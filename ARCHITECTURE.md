@@ -130,7 +130,8 @@ Three limits apply, all in memory and per process:
 Refusals use `rate_limited` (HTTP 429 with `Retry-After`, or a tool error carrying `retryAfterSeconds`).
 The client key is the socket address unless `TRUST_PROXY=true`, in which case `X-Forwarded-For` is read
 only when the connection comes from loopback, and the rightmost untrusted entry is used. IPv6 clients are
-keyed by their /64 prefix, because one client normally controls the whole prefix, and the limiter
+keyed by their /64 prefix, because one client normally controls the whole prefix. An IPv4-mapped address
+(`::ffff:a.b.c.d`, written in dotted, hexadecimal or expanded form) is keyed as that IPv4 address. The limiter
 clock is monotonic so a system clock change cannot extend a lockout.
 
 ### Tool call

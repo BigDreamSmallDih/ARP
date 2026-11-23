@@ -63,6 +63,16 @@ describe('AuthFailureGuard', () => {
     expect(() => guard.assertAllowed('2001:db8:1:3::1', 'r4')).not.toThrow();
   });
 
+  it('counts an IPv4-mapped address in any notation as its IPv4 client', () => {
+    const { guard } = setup(2);
+    guard.recordFailure('203.0.113.5', 'r1');
+    guard.recordFailure('::ffff:cb00:7105', 'r2');
+
+    expect(() => guard.assertAllowed('::ffff:203.0.113.5', 'r3')).toThrow(GatewayError);
+    expect(() => guard.assertAllowed('0:0:0:0:0:ffff:cb00:7105', 'r4')).toThrow(GatewayError);
+    expect(() => guard.assertAllowed('::ffff:cb00:7106', 'r5')).not.toThrow();
+  });
+
   it('audits failures and lockouts without recording the client address', () => {
     const { guard, audit } = setup(1);
     guard.recordFailure('203.0.113.9', 'r1');

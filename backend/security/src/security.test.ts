@@ -234,4 +234,83 @@ describe('clientKey', () => {
   it('leaves a value that is not an address unchanged', () => {
     expect(clientKey('unknown')).toBe('unknown');
   });
+
+  it.each([
+    ['dotted', '::ffff:203.0.113.5'],
+    ['dotted, upper case', '::FFFF:203.0.113.5'],
+    ['hexadecimal', '::ffff:cb00:7105'],
+    ['hexadecimal, upper case', '::FFFF:CB00:7105'],
+    ['expanded with dotted tail', '0:0:0:0:0:ffff:203.0.113.5'],
+    ['expanded with hexadecimal tail', '0:0:0:0:0:ffff:cb00:7105'],
+    ['zero-padded groups, hexadecimal', '0000:0000:0000:0000:0000:ffff:cb00:7105'],
+    ['zero-padded groups, dotted', '0000:0000:0000:0000:0000:ffff:203.0.113.5'],
+    ['partly compressed', '0:0::ffff:cb00:7105'],
+    ['compressed in the middle', '0::ffff:cb00:7105'],
+    ['leading group written out', '::0:ffff:cb00:7105'],
+    ['with a zone id', '::ffff:203.0.113.5%eth0'],
+  ])('keys an IPv4-mapped address (%s) as its IPv4 address', (_form, address) => {
+    expect(clientKey(address)).toBe('203.0.113.5');
+  });
+
+  it.each([
+    ['::ffff:0.0.0.0', '0.0.0.0'],
+    ['::ffff:255.255.255.255', '255.255.255.255'],
+    ['::ffff:ffff:ffff', '255.255.255.255'],
+    ['::ffff:7f00:1', '127.0.0.1'],
+    ['::ffff:c000:2ff', '192.0.2.255'],
+    ['::ffff:cb00:7e', '203.0.0.126'],
+  ])('converts every octet of %s correctly', (address, expected) => {
+    expect(clientKey(address)).toBe(expected);
+  });
+
+  it('does not group different IPv4-mapped clients under one key', () => {
+    const keys = ['::ffff:cb00:7105', '::ffff:cb00:7106', '::ffff:c000:201', '::ffff:7f00:1'].map(clientKey);
+    expect(new Set(keys).size).toBe(4);
+    expect(keys).not.toContain('0:0:0:0::/64');
+  });
+
+  it.each([
+    ['::ffff:0:cb00:7105', '0:0:0:0::/64'],
+    ['::cb00:7105', '0:0:0:0::/64'],
+    ['64:ff9b::cb00:7105', '64:ff9b:0:0::/64'],
+    ['1::ffff:cb00:7105', '1:0:0:0::/64'],
+    ['0:0:0:0:1:ffff:cb00:7105', '0:0:0:0::/64'],
+    ['0:0:0:1:0:ffff:cb00:7105', '0:0:0:1::/64'],
+    ['::fffe:cb00:7105', '0:0:0:0::/64'],
+  ])('does not mistake %s for an IPv4-mapped address', (address, expected) => {
+    expect(clientKey(address)).toBe(expected);
+  });
+
+  it.each([
+    ['1:2::a:b:c:1.2.3.4', '1:2:0:a::/64'],
+    ['2001:db8::a:b:c:192.0.2.1', '2001:db8:0:a::/64'],
+    ['1::2:3:4:5:1.2.3.4', '1:0:2:3::/64'],
+    ['1:2:3:4::5:1.2.3.4', '1:2:3:4::/64'],
+    ['1:2:3::1.2.3.4', '1:2:3:0::/64'],
+    ['1:2:3:4:5:6:1.2.3.4', '1:2:3:4::/64'],
+    ['::1.2.3.4', '0:0:0:0::/64'],
+  ])('counts a dotted IPv4 tail as two groups in %s', (address, expected) => {
+    expect(clientKey(address)).toBe(expected);
+  });
+
+  it.each([
+    ['::', '0:0:0:0::/64'],
+    ['1::', '1:0:0:0::/64'],
+    ['::8', '0:0:0:0::/64'],
+    ['1::8', '1:0:0:0::/64'],
+    ['1:2:3:4:5:6:7:8', '1:2:3:4::/64'],
+    ['1:2:3:4:5:6:7::', '1:2:3:4::/64'],
+    ['::2:3:4:5:6:7:8', '0:2:3:4::/64'],
+    ['FE80::ABCD', 'fe80:0:0:0::/64'],
+    ['2001:DB8:A:B::C', '2001:db8:a:b::/64'],
+  ])('finds the /64 prefix of %s', (address, expected) => {
+    expect(clientKey(address)).toBe(expected);
+  });
+
+  it.each(['::ffff:999.1.1.1', '1:2:3:4:5:6:7:8:9', ':::', 'g::1', '', '203.0.113.7'])(
+    'leaves the non-IPv6 value %j unchanged',
+    (value) => {
+      expect(clientKey(value)).toBe(value);
+    },
+  );
 });

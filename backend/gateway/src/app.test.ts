@@ -314,6 +314,17 @@ describe('request rate limiting', () => {
     expect((await send('2001:db8:1:2:aaaa:bbbb:cccc:dddd')).statusCode).toBe(429);
     expect((await send('2001:db8:1:3::1')).statusCode).toBe(200);
   });
+
+  it('limits an IPv4 client once however its IPv4-mapped address is written', async () => {
+    const { app } = await start({ RATE_LIMIT_PER_MINUTE: '1' });
+    const send = (remoteAddress: string) =>
+      app.inject({ method: 'GET', url: '/api/status', headers: admin, remoteAddress });
+
+    expect((await send('::ffff:203.0.113.5')).statusCode).toBe(200);
+    expect((await send('::ffff:cb00:7105')).statusCode).toBe(429);
+    expect((await send('0:0:0:0:0:ffff:cb00:7105')).statusCode).toBe(429);
+    expect((await send('::ffff:cb00:7106')).statusCode).toBe(200);
+  });
 });
 
 describe('authentication lockout', () => {
