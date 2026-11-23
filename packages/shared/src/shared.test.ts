@@ -19,7 +19,11 @@ describe('GatewayError', () => {
     ['not_found', 404],
     ['session_not_found', 404],
     ['session_limit_reached', 503],
-    ['not_implemented', 501],
+    ['rate_limited', 429],
+    ['cancelled', 499],
+    ['provider_not_configured', 503],
+    ['provider_timeout', 504],
+    ['provider_error', 502],
     ['admin_not_configured', 503],
     ['internal_error', 500],
   ] as const)('maps %s to HTTP %i', (code, status) => {
@@ -64,10 +68,27 @@ describe('toGatewayError', () => {
   });
 });
 
+describe('toErrorBody for rate limits', () => {
+  it('includes retryAfterSeconds', () => {
+    const error = new GatewayError('rate_limited', 'slow down', { retryAfterSeconds: 12 });
+    expect(toErrorBody(error).error).toEqual({
+      code: 'rate_limited',
+      message: 'slow down',
+      retryAfterSeconds: 12,
+    });
+  });
+});
+
 describe('provider state', () => {
-  it('has no connected state because Phase 1 never calls providers', () => {
-    expect(ProviderStateSchema.options).toEqual(['unconfigured', 'configured']);
-    expect(ProviderStateSchema.safeParse('connected').success).toBe(false);
+  it('defines the five states in connection order', () => {
+    expect(ProviderStateSchema.options).toEqual([
+      'unconfigured',
+      'configured',
+      'connecting',
+      'connected',
+      'error',
+    ]);
+    expect(ProviderStateSchema.safeParse('online').success).toBe(false);
   });
 });
 

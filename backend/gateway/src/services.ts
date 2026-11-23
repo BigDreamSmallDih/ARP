@@ -1,6 +1,8 @@
 import type { AgentRegistry, ProviderAdapter } from '@arp/agents';
 import { listToolSummaries, type GatewayServices, type ToolDefinition } from '@arp/mcp';
+import type { RateLimiter } from '@arp/security';
 import {
+  GatewayError,
   GATEWAY_NAME,
   GATEWAY_VERSION,
   PROVIDER_IDS,
@@ -18,6 +20,7 @@ export interface ServicesDeps {
   readonly sessions: SessionStore;
   readonly startedAt: Date;
   readonly tools: readonly ToolDefinition[];
+  readonly providerLimiter: RateLimiter;
 }
 
 export function uptimeSeconds(startedAt: Date, now: Date = new Date()): number {
@@ -45,10 +48,16 @@ export function collectWarnings(input: WarningInput): string[] {
     .filter((provider) => provider.state === 'unconfigured')
     .map((provider) => provider.id);
   if (unconfigured.length > 0) {
-    warnings.push(`No API key is set for: ${unconfigured.join(', ')}.`);
+    warnings.push(`Needs both an API key and a model: ${unconfigured.join(', ')}.`);
+  }
+  const failing = input.providers
+    .filter((provider) => provider.state === 'error')
+    .map((provider) => provider.id);
+  if (failing.length > 0) {
+    warnings.push(`The last call failed for: ${failing.join(', ')}.`);
   }
   if (input.supabaseConfigured) {
-    warnings.push('Supabase credentials are set but Phase 1 does not use them.');
+    warnings.push('Supabase credentials are set but the gateway does not use them yet.');
   }
   return warnings;
 }
@@ -101,5 +110,35 @@ export function createGatewayServices(deps: ServicesDeps): GatewayServices {
     }),
 
     getSessionStatus: (sessionId) => deps.sessions.status(sessionId),
+
+    async sendMessage(request) {
+      const target = deps.agents.resolve(request.agent);
+      if (target === undefined) {
+        throw new GatewayError('not_found', 'No agent with that id is registered');
+      }
+
+      const decision = deps.providerLimiter.hit(request.callerId);
+      if (!decision.allowed) {
+        throw new GatewayError('rate_limited', 'Too many provider calls from this agent', {
+          retryAfterSeconds: decision.retryAfterSeconds,
+        });
+      }
+
+      const cap = deps.config.providerMaxOutputTokens;
+      const response = await target.adapter.send({
+        messages: [{ role: 'user', content: request.message }],
+        system: request.system,
+        maxOutputTokens: Math.min(request.maxOutputTokens ?? cap, cap),
+        signal: request.signal,
+      });
+      return {
+        agent: target.agent.id,
+        provider: target.agent.provider,
+        model: response.model,
+        text: response.text,
+        ...(response.finishReason === undefined ? {} : { finishReason: response.finishReason }),
+        ...(response.usage === undefined ? {} : { usage: response.usage }),
+      };
+    },
   };
 }

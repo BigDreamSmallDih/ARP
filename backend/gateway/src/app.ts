@@ -1,9 +1,22 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { AGENT_ROSTER, AgentRegistry, createProviderAdapters } from '@arp/agents';
+import { AGENT_ROSTER, AgentRegistry, createProviderAdapters, type FetchLike } from '@arp/agents';
 import { TOOLS } from '@arp/mcp';
-import { AuditLog, digestToken, extractBearerToken, matchesDigest } from '@arp/security';
-import { GATEWAY_VERSION, GatewayError, toErrorBody, type Health } from '@arp/shared';
+import {
+  AuditLog,
+  RateLimiter,
+  digestToken,
+  extractBearerToken,
+  matchesDigest,
+} from '@arp/security';
+import {
+  GATEWAY_VERSION,
+  GatewayError,
+  ProviderIdSchema,
+  toErrorBody,
+  type Health,
+} from '@arp/shared';
+import { AuthFailureGuard } from './auth-guard';
 import type { GatewayConfig } from './config';
 import { McpGateway } from './mcp-gateway';
 import { toRequestError } from './request-error';
@@ -18,17 +31,32 @@ export interface Gateway {
   sweepExpiredSessions(): void;
 }
 
+const ProviderParamsSchema = z.object({ id: ProviderIdSchema });
+
 const AuditQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(500).default(50),
 });
 
-export async function createGateway(config: GatewayConfig): Promise<Gateway> {
+export interface GatewayOptions {
+  /** Replaces the global fetch used for provider calls; tests inject a fake. */
+  readonly fetchImpl?: FetchLike;
+  /** Receives the structured log lines instead of stdout; used by tests that inspect the log. */
+  readonly logStream?: { write(line: string): void };
+}
+
+export async function createGateway(
+  config: GatewayConfig,
+  options: GatewayOptions = {},
+): Promise<Gateway> {
+  const loggerOptions = {
+    level: config.environment === 'test' ? 'silent' : config.logLevel,
+    redact: ['req.headers.authorization', 'req.headers["x-api-key"]', 'req.headers["x-goog-api-key"]'],
+    ...(options.logStream === undefined ? {} : { stream: options.logStream }),
+  };
   const app = Fastify({
-    logger: {
-      level: config.environment === 'test' ? 'silent' : config.logLevel,
-      redact: ['req.headers.authorization'],
-    },
-    bodyLimit: 1_048_576,
+    logger: loggerOptions,
+    bodyLimit: config.bodyLimitBytes,
+    trustProxy: config.trustProxy,
     forceCloseConnections: true,
   });
 
@@ -41,10 +69,21 @@ export async function createGateway(config: GatewayConfig): Promise<Gateway> {
     maxSessionsPerAgent: config.sessions.maxPerAgent,
     idleTtlMs: config.sessions.idleTtlSeconds * 1000,
   });
-  const adapters = createProviderAdapters(config.providerKeysPresent);
+  const adapters = createProviderAdapters(config.providers, options.fetchImpl);
   const agents = new AgentRegistry(AGENT_ROSTER, config.agentTokens, adapters);
-  const services = createGatewayServices({ config, agents, adapters, sessions, startedAt, tools: TOOLS });
-  const mcp = new McpGateway({ sessions, agents, services, audit, logger: app.log });
+  const providerLimiter = new RateLimiter({ limit: config.limits.providerCallsPerMinute, windowMs: 60_000 });
+  const services = createGatewayServices({
+    config,
+    agents,
+    adapters,
+    sessions,
+    startedAt,
+    tools: TOOLS,
+    providerLimiter,
+  });
+  const authGuard = new AuthFailureGuard(config.limits.authFailures, audit);
+  const mcp = new McpGateway({ sessions, agents, services, audit, authGuard, logger: app.log });
+  const requestLimiter = new RateLimiter({ limit: config.limits.requestsPerMinute, windowMs: 60_000 });
 
   const dashboardOrigin = config.dashboardOrigin;
   if (dashboardOrigin !== undefined) {
@@ -62,6 +101,16 @@ export async function createGateway(config: GatewayConfig): Promise<Gateway> {
     });
   }
 
+  app.addHook('onRequest', async (request) => {
+    if (request.url === '/health') return;
+    const decision = requestLimiter.hit(request.ip);
+    if (!decision.allowed) {
+      throw new GatewayError('rate_limited', 'Too many requests', {
+        retryAfterSeconds: decision.retryAfterSeconds,
+      });
+    }
+  });
+
   app.addHook('onReady', async () => {
     mcp.startSweeper(Math.min(60_000, (config.sessions.idleTtlSeconds * 1000) / 2));
   });
@@ -75,6 +124,9 @@ export async function createGateway(config: GatewayConfig): Promise<Gateway> {
       request.log.error({ err: error }, 'Unhandled request error');
     }
     if (failure.code === 'unauthorized') reply.header('www-authenticate', 'Bearer');
+    if (failure.retryAfterSeconds !== undefined) {
+      reply.header('retry-after', String(failure.retryAfterSeconds));
+    }
     return reply.code(failure.httpStatus).send(toErrorBody(failure, request.id));
   });
 
@@ -104,14 +156,10 @@ export async function createGateway(config: GatewayConfig): Promise<Gateway> {
             'GATEWAY_ADMIN_TOKEN is not set, so the admin API is disabled',
           );
         }
+        authGuard.assertAllowed(request.ip, request.id);
         const token = extractBearerToken(request.headers.authorization);
         if (token === undefined || !matchesDigest(token, adminDigest)) {
-          audit.record({
-            type: 'auth.failed',
-            outcome: 'denied',
-            errorCode: 'unauthorized',
-            requestId: request.id,
-          });
+          authGuard.recordFailure(request.ip, request.id);
           throw new GatewayError('unauthorized', 'Missing or invalid admin credential');
         }
       });
@@ -119,6 +167,12 @@ export async function createGateway(config: GatewayConfig): Promise<Gateway> {
       api.get('/status', async () => services.getSystemStatus());
       api.get('/agents', async () => ({ agents: services.listAgents() }));
       api.get('/gateway', async () => services.getGatewayInfo());
+      api.post('/providers/:id/verify', async (request) => {
+        const { id } = ProviderParamsSchema.parse(request.params);
+        const adapter = adapters[id];
+        await adapter.verify();
+        return { provider: adapter.status() };
+      });
       api.get('/audit', async (request) => {
         const { limit } = AuditQuerySchema.parse(request.query);
         return { events: audit.recent(limit) };

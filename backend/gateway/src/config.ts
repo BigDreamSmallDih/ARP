@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import type { ProviderSettings } from '@arp/agents';
+import { Secret } from '@arp/security';
 import type { ProviderId } from '@arp/shared';
 
 export type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
@@ -11,8 +13,16 @@ export interface GatewayConfig {
   readonly adminToken: string | undefined;
   /** Gateway bearer tokens keyed by agent id. */
   readonly agentTokens: Readonly<Record<string, string | undefined>>;
-  /** Only whether a provider key exists; the keys themselves are never loaded. */
-  readonly providerKeysPresent: Readonly<Record<ProviderId, boolean>>;
+  /** Provider keys are held as Secret values, so serialising the config cannot reveal them. */
+  readonly providers: Readonly<Record<ProviderId, ProviderSettings>>;
+  readonly providerMaxOutputTokens: number;
+  readonly trustProxy: boolean;
+  readonly bodyLimitBytes: number;
+  readonly limits: {
+    readonly requestsPerMinute: number;
+    readonly authFailures: number;
+    readonly providerCallsPerMinute: number;
+  };
   readonly supabaseConfigured: boolean;
   readonly dashboardOrigin: string | undefined;
   readonly sessions: {
@@ -45,6 +55,20 @@ const secret = z.preprocess(
 
 const text = z.preprocess(emptyToUndefined, z.string().optional());
 
+/** Model ids end up in a URL path for Gemini, so only plain identifier characters are allowed. */
+const model = z.preprocess(
+  emptyToUndefined,
+  z
+    .string()
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/, 'must be a plain model id such as "name-1.0"')
+    .optional(),
+);
+
+const flag = z.preprocess(
+  emptyToUndefined,
+  z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+);
+
 function integer(fallback: number, min: number, max: number) {
   return z.preprocess(emptyToUndefined, z.coerce.number().int().min(min).max(max).default(fallback));
 }
@@ -66,8 +90,18 @@ const envSchema = z
     GATEWAY_TOKEN_CLAUDE: secret,
     GATEWAY_TOKEN_GEMINI: secret,
     OPENAI_API_KEY: text,
+    OPENAI_MODEL: model,
     ANTHROPIC_API_KEY: text,
+    ANTHROPIC_MODEL: model,
     GEMINI_API_KEY: text,
+    GEMINI_MODEL: model,
+    PROVIDER_TIMEOUT_MS: integer(30_000, 1_000, 120_000),
+    PROVIDER_MAX_OUTPUT_TOKENS: integer(1_024, 1, 8_192),
+    TRUST_PROXY: flag,
+    REQUEST_BODY_LIMIT_BYTES: integer(262_144, 1_024, 10_485_760),
+    RATE_LIMIT_PER_MINUTE: integer(120, 1, 100_000),
+    AUTH_FAILURE_LIMIT: integer(10, 1, 1_000),
+    PROVIDER_CALLS_PER_MINUTE: integer(20, 1, 10_000),
     SUPABASE_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
     SUPABASE_SERVICE_ROLE_KEY: text,
     DASHBOARD_ORIGIN: z.preprocess(
@@ -114,6 +148,14 @@ const envSchema = z
     }
   });
 
+function providerSettings(
+  apiKey: string | undefined,
+  modelId: string | undefined,
+  timeoutMs: number,
+): ProviderSettings {
+  return { apiKey: apiKey === undefined ? undefined : new Secret(apiKey), model: modelId, timeoutMs };
+}
+
 /** Issue messages never contain secret values. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig {
   const parsed = envSchema.safeParse(env);
@@ -138,10 +180,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
       claude: values.GATEWAY_TOKEN_CLAUDE,
       gemini: values.GATEWAY_TOKEN_GEMINI,
     },
-    providerKeysPresent: {
-      openai: values.OPENAI_API_KEY !== undefined,
-      anthropic: values.ANTHROPIC_API_KEY !== undefined,
-      gemini: values.GEMINI_API_KEY !== undefined,
+    providers: {
+      openai: providerSettings(values.OPENAI_API_KEY, values.OPENAI_MODEL, values.PROVIDER_TIMEOUT_MS),
+      anthropic: providerSettings(
+        values.ANTHROPIC_API_KEY,
+        values.ANTHROPIC_MODEL,
+        values.PROVIDER_TIMEOUT_MS,
+      ),
+      gemini: providerSettings(values.GEMINI_API_KEY, values.GEMINI_MODEL, values.PROVIDER_TIMEOUT_MS),
+    },
+    providerMaxOutputTokens: values.PROVIDER_MAX_OUTPUT_TOKENS,
+    trustProxy: values.TRUST_PROXY,
+    bodyLimitBytes: values.REQUEST_BODY_LIMIT_BYTES,
+    limits: {
+      requestsPerMinute: values.RATE_LIMIT_PER_MINUTE,
+      authFailures: values.AUTH_FAILURE_LIMIT,
+      providerCallsPerMinute: values.PROVIDER_CALLS_PER_MINUTE,
     },
     supabaseConfigured: values.SUPABASE_URL !== undefined,
     dashboardOrigin: values.DASHBOARD_ORIGIN,

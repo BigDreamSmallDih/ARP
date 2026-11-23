@@ -6,7 +6,7 @@ import { AuditTable } from './AuditTable';
 
 export function Overview({ snapshot }: { snapshot: Snapshot }) {
   const { health, status, audit, connection } = snapshot;
-  const configured = status?.providers.filter((provider) => provider.state === 'configured').length;
+  const connected = status?.providers.filter((provider) => provider.state === 'connected').length;
 
   return (
     <div className="stack">
@@ -26,12 +26,12 @@ export function Overview({ snapshot }: { snapshot: Snapshot }) {
         <Stat
           label="MCP tools"
           value={status === undefined ? '–' : status.toolCount}
-          hint="Read-only demonstration tools"
+          hint="Registered on the gateway"
         />
         <Stat
-          label="Provider keys"
-          value={configured === undefined || status === undefined ? '–' : `${configured} / ${status.providers.length}`}
-          hint="Keys present, none verified"
+          label="Providers connected"
+          value={connected === undefined || status === undefined ? '–' : `${connected} / ${status.providers.length}`}
+          hint="Last authenticated call succeeded"
         />
       </div>
 
@@ -47,14 +47,17 @@ export function Overview({ snapshot }: { snapshot: Snapshot }) {
             <ul className="row-list">
               {status.providers.map((provider) => (
                 <li key={provider.id}>
-                  <span>{provider.displayName}</span>
+                  <span>
+                    {provider.displayName}
+                    {provider.model !== undefined && <span className="muted small mono"> {provider.model}</span>}
+                  </span>
                   <Badge presentation={providerPresentation(provider.state)} />
                 </li>
               ))}
             </ul>
             <p className="muted small">
-              Provider adapters are placeholders. The gateway never calls a provider in this phase, so no
-              provider can be shown as connected.
+              A provider shows as connected only after the gateway completed an authenticated call to it.
+              Having an API key set is not enough.
             </p>
           </Card>
 

@@ -69,7 +69,7 @@ describe('createClient', () => {
       id: 'claude',
       displayName: 'Claude',
       provider: 'anthropic',
-      providerState: 'connected',
+      providerState: 'online',
       gatewayCredential: 'configured',
       permissions: [],
     };

@@ -21,6 +21,12 @@ export function Agents({ snapshot }: { snapshot: Snapshot }) {
                     <Badge presentation={providerPresentation(agent.providerState)} />
                   </dd>
                 </div>
+                {agent.model !== undefined && (
+                  <div className="kv-row">
+                    <dt>Model</dt>
+                    <dd className="mono">{agent.model}</dd>
+                  </div>
+                )}
                 <div className="kv-row">
                   <dt>Gateway credential</dt>
                   <dd>
@@ -42,8 +48,8 @@ export function Agents({ snapshot }: { snapshot: Snapshot }) {
       )}
 
       <p className="muted small">
-        "Key set, not verified" means the gateway environment holds an API key for the provider. Phase 1
-        never sends it anywhere. "Token set" means the agent can authenticate to the MCP gateway.
+        "Key set, not verified" means the gateway holds an API key and model for the provider but has not
+        completed a call yet. "Token set" means the agent can authenticate to the MCP gateway.
       </p>
     </div>
   );

@@ -1,4 +1,4 @@
-import type { AgentSummary, ProviderId } from '@arp/shared';
+import { GatewayError, type AgentSummary, type ProviderId } from '@arp/shared';
 import { listToolSummaries } from './tools';
 import type { GatewayServices } from './tool';
 
@@ -21,7 +21,7 @@ const AGENTS: AgentSummary[] = [
   },
 ];
 
-/** Deterministic services used by the tool and server tests. */
+/** Deterministic services for tool and server tests only; the reply text is a fixture, not model output. */
 export function createFixtureServices(sessionId = 'session-1'): GatewayServices {
   return {
     getSystemStatus: () => ({
@@ -32,10 +32,15 @@ export function createFixtureServices(sessionId = 'session-1'): GatewayServices 
       nodeVersion: 'v20.19.0',
       components: { adminApi: 'configured', supabase: 'unconfigured', roblox: 'not_integrated' },
       providers: [
-        { id: 'openai', displayName: 'OpenAI', state: 'unconfigured', adapter: 'placeholder' },
+        {
+          id: 'openai',
+          displayName: 'OpenAI',
+          state: 'unconfigured',
+          usage: { requests: 0, failures: 0, inputTokens: 0, outputTokens: 0 },
+        },
       ],
       sessions: { active: 1, max: 10 },
-      toolCount: 4,
+      toolCount: 5,
       warnings: [],
     }),
     listAgents: (provider?: ProviderId) =>
@@ -60,5 +65,17 @@ export function createFixtureServices(sessionId = 'session-1'): GatewayServices 
             requestCount: 2,
           }
         : undefined,
+    sendMessage: async (request) => {
+      if (!AGENTS.some((agent) => agent.id === request.agent)) {
+        throw new GatewayError('not_found', `Unknown agent "${request.agent}"`);
+      }
+      return {
+        agent: request.agent,
+        provider: 'anthropic',
+        model: 'fixture-model',
+        text: `fixture reply to: ${request.message}`,
+        usage: { inputTokens: 3, outputTokens: 5 },
+      };
+    },
   };
 }

@@ -1,7 +1,10 @@
+import { inspect } from 'node:util';
 import { describe, expect, it, vi } from 'vitest';
 import { GatewayError } from '@arp/shared';
 import {
   AuditLog,
+  RateLimiter,
+  Secret,
   assertPermission,
   digestToken,
   extractBearerToken,
@@ -118,5 +121,91 @@ describe('AuditLog', () => {
   it('rejects an invalid capacity', () => {
     expect(() => new AuditLog(0)).toThrow(RangeError);
     expect(() => new AuditLog(1.5)).toThrow(RangeError);
+  });
+});
+
+describe('Secret', () => {
+  const value = 'sk-test-secret-value-1234567890';
+
+  it('returns the value only through reveal()', () => {
+    expect(new Secret(value).reveal()).toBe(value);
+  });
+
+  it.each([
+    ['JSON.stringify', (secret: Secret) => JSON.stringify({ secret })],
+    ['string interpolation', (secret: Secret) => `${secret.toString()}`],
+    ['template literal', (secret: Secret) => `key=${String(secret)}`],
+    ['util.inspect', (secret: Secret) => inspect({ secret }, { depth: 5 })],
+  ])('does not reveal the value through %s', (_name, render) => {
+    expect(render(new Secret(value))).not.toContain(value);
+  });
+
+  it('does not expose the value as an enumerable property', () => {
+    expect(Object.keys(new Secret(value))).toEqual([]);
+    expect(JSON.stringify(Object.entries(new Secret(value)))).not.toContain(value);
+  });
+});
+
+describe('RateLimiter', () => {
+  function setup(limit = 3, windowMs = 60_000, maxKeys?: number) {
+    let now = 0;
+    const limiter = new RateLimiter({
+      limit,
+      windowMs,
+      now: () => now,
+      ...(maxKeys === undefined ? {} : { maxKeys }),
+    });
+    return {
+      limiter,
+      advance: (ms: number) => {
+        now += ms;
+      },
+    };
+  }
+
+  it('allows up to the limit and then reports when to retry', () => {
+    const { limiter, advance } = setup();
+    advance(10_000);
+    expect([1, 2, 3].map(() => limiter.hit('a').allowed)).toEqual([true, true, true]);
+
+    const denied = limiter.hit('a');
+    expect(denied).toMatchObject({ allowed: false, remaining: 0, retryAfterSeconds: 60 });
+  });
+
+  it('starts a new window once the old one has passed', () => {
+    const { limiter, advance } = setup(1, 1_000);
+    limiter.hit('a');
+    expect(limiter.hit('a').allowed).toBe(false);
+    advance(1_000);
+    expect(limiter.hit('a').allowed).toBe(true);
+  });
+
+  it('tracks each key separately', () => {
+    const { limiter } = setup(1);
+    limiter.hit('a');
+    expect(limiter.hit('a').allowed).toBe(false);
+    expect(limiter.hit('b').allowed).toBe(true);
+  });
+
+  it('peek reports state without counting a request', () => {
+    const { limiter } = setup(1);
+    expect(limiter.peek('a')).toMatchObject({ allowed: true, remaining: 1 });
+    expect(limiter.peek('a').allowed).toBe(true);
+    limiter.hit('a');
+    expect(limiter.peek('a').allowed).toBe(false);
+  });
+
+  it('keeps memory bounded by evicting the oldest key', () => {
+    const { limiter } = setup(1, 60_000, 2);
+    limiter.hit('a');
+    limiter.hit('b');
+    limiter.hit('c');
+    expect(limiter.peek('a').allowed).toBe(true);
+    expect(limiter.peek('c').allowed).toBe(false);
+  });
+
+  it('rejects invalid options', () => {
+    expect(() => new RateLimiter({ limit: 0, windowMs: 1000 })).toThrow(RangeError);
+    expect(() => new RateLimiter({ limit: 1, windowMs: 0 })).toThrow(RangeError);
   });
 });

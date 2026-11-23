@@ -1,0 +1,20 @@
+# Reverse proxy for the gateway with automatic HTTPS (Caddy 2).
+# Replace gateway.example.com with your domain, whose DNS points at this host.
+# Run the gateway with HOST=127.0.0.1 and TRUST_PROXY=true so it only accepts the proxy.
+
+gateway.example.com {
+	encode zstd gzip
+
+	# Same cap as REQUEST_BODY_LIMIT_BYTES (256 KiB), enforced before the gateway.
+	request_body {
+		max_size 256KB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	reverse_proxy 127.0.0.1:8787
+}

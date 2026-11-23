@@ -8,11 +8,20 @@ export interface Presentation {
   readonly label: string;
 }
 
-/** Phase 1 never contacts providers, so no label here may read as connected. */
+/** "Connected" is shown only when the gateway reports a successful authenticated provider call. */
 export function providerPresentation(state: ProviderState): Presentation {
-  return state === 'configured'
-    ? { tone: 'info', label: 'Key set, not verified' }
-    : { tone: 'muted', label: 'Unconfigured' };
+  switch (state) {
+    case 'unconfigured':
+      return { tone: 'muted', label: 'Unconfigured' };
+    case 'configured':
+      return { tone: 'info', label: 'Key set, not verified' };
+    case 'connecting':
+      return { tone: 'info', label: 'Connecting' };
+    case 'connected':
+      return { tone: 'ok', label: 'Connected' };
+    case 'error':
+      return { tone: 'danger', label: 'Last call failed' };
+  }
 }
 
 export function credentialPresentation(state: 'configured' | 'missing'): Presentation {

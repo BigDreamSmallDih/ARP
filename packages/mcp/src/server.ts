@@ -38,7 +38,12 @@ export function createMcpServer(options: McpServerOptions): McpServer {
           const output = await executeTool(
             tool,
             args,
-            { agent: options.agent, sessionId: extra.sessionId, services: options.services },
+            {
+              agent: options.agent,
+              sessionId: extra.sessionId,
+              services: options.services,
+              signal: extra.signal,
+            },
             options.audit,
           );
           return {

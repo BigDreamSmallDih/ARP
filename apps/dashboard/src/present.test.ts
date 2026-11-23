@@ -9,16 +9,19 @@ describe('provider presentation', () => {
     expect(providerPresentation('unconfigured')).toEqual({ tone: 'muted', label: 'Unconfigured' });
   });
 
-  it('never presents any provider state as connected or healthy', () => {
+  it('shows connected only for the connected state', () => {
     for (const state of ProviderStateSchema.options) {
-      const { tone, label } = providerPresentation(state);
-      expect(label).not.toMatch(/connected|online|ready|active/i);
-      expect(tone).not.toBe('ok');
+      const { label } = providerPresentation(state);
+      expect(/connected/i.test(label) && !/not/i.test(label)).toBe(state === 'connected');
     }
   });
 
   it('describes a present key as not verified', () => {
     expect(providerPresentation('configured').label).toMatch(/not verified/i);
+  });
+
+  it('shows a failed provider as a failure', () => {
+    expect(providerPresentation('error').tone).toBe('danger');
   });
 });
 

@@ -4,6 +4,7 @@ import {
   GatewayError,
   GatewayInfoSchema,
   ProviderIdSchema,
+  ProviderReplySchema,
   SessionStatusSchema,
   SystemStatusSchema,
   type ToolSummary,
@@ -62,11 +63,33 @@ export const getSessionStatus = defineTool({
   },
 });
 
+export const MAX_MESSAGE_CHARS = 16_000;
+export const MAX_SYSTEM_CHARS = 4_000;
+export const MAX_OUTPUT_TOKENS = 8_192;
+
+export const sendMessage = defineTool({
+  name: 'send_message',
+  title: 'Send message to an agent',
+  description:
+    'Sends one message to the AI provider behind the named agent and returns its reply. This is a real, billable provider call.',
+  requiredPermission: 'providers:invoke',
+  input: z.object({
+    agent: z.string().min(1).max(64),
+    message: z.string().min(1).max(MAX_MESSAGE_CHARS),
+    system: z.string().min(1).max(MAX_SYSTEM_CHARS).optional(),
+    maxOutputTokens: z.number().int().min(1).max(MAX_OUTPUT_TOKENS).optional(),
+  }),
+  output: ProviderReplySchema,
+  handler: (input, ctx) =>
+    ctx.services.sendMessage({ ...input, callerId: ctx.agent.id, signal: ctx.signal }),
+});
+
 export const TOOLS: readonly ToolDefinition[] = [
   getSystemStatus,
   getRegisteredAgents,
   getGatewayInfo,
   getSessionStatus,
+  sendMessage,
 ];
 
 export function listToolSummaries(tools: readonly ToolDefinition[] = TOOLS): ToolSummary[] {

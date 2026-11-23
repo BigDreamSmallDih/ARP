@@ -1,6 +1,6 @@
 import { digestToken, matchesDigest, type TokenDigest } from '@arp/security';
 import type { AgentSummary, Permission, ProviderId } from '@arp/shared';
-import type { ProviderAdapter } from './providers';
+import type { ProviderAdapter } from './adapter';
 import type { AgentDefinition } from './roster';
 
 export interface AgentIdentity {
@@ -53,6 +53,13 @@ export class AgentRegistry {
     return match === undefined ? undefined : toIdentity(match);
   }
 
+  /** Finds the agent and the adapter that serves its provider. */
+  resolve(id: string): { agent: AgentSummary; adapter: ProviderAdapter } | undefined {
+    const definition = this.roster.find((candidate) => candidate.id === id);
+    if (definition === undefined) return undefined;
+    return { agent: this.summarize(definition), adapter: this.adapters[definition.provider] };
+  }
+
   get(id: string): AgentSummary | undefined {
     const agent = this.roster.find((candidate) => candidate.id === id);
     return agent === undefined ? undefined : this.summarize(agent);
@@ -65,11 +72,13 @@ export class AgentRegistry {
   }
 
   private summarize(agent: AgentDefinition): AgentSummary {
+    const provider = this.adapters[agent.provider].status();
     return {
       id: agent.id,
       displayName: agent.displayName,
       provider: agent.provider,
-      providerState: this.adapters[agent.provider].status().state,
+      providerState: provider.state,
+      ...(provider.model === undefined ? {} : { model: provider.model }),
       gatewayCredential: this.digests.has(agent.id) ? 'configured' : 'missing',
       permissions: [...agent.permissions],
     };
