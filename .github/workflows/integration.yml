@@ -1,0 +1,63 @@
+name: Provider integration tests
+
+# Manual only. These tests call the real provider APIs with repository secrets, so they never
+# run on pull requests or pushes. A provider is tested only when both its API key and its model
+# secret exist. The billable call runs only when "paid_calls" is ticked.
+on:
+  workflow_dispatch:
+    inputs:
+      paid_calls:
+        description: Also send one small message to each configured provider (billable)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  live:
+    name: Live provider checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
+      ARP_INTEGRATION_PAID_CALLS: ${{ inputs.paid_calls }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Look for provider secrets
+        id: secrets
+        run: |
+          found=false
+          for name in OPENAI ANTHROPIC GEMINI; do
+            key="${name}_API_KEY"
+            model="${name}_MODEL"
+            if [ -n "${!key}" ] && [ -n "${!model}" ]; then
+              echo "$name: key and model present"
+              found=true
+            else
+              echo "$name: skipped, needs both ${key} and ${model} secrets"
+            fi
+          done
+          echo "found=$found" >> "$GITHUB_OUTPUT"
+
+      - name: Set up the project
+        if: steps.secrets.outputs.found == 'true'
+        uses: ./.github/actions/setup
+
+      - name: Run integration tests
+        if: steps.secrets.outputs.found == 'true'
+        run: npm run test:integration
+
+      - name: Nothing to test
+        if: steps.secrets.outputs.found != 'true'
+        run: echo "::notice::No provider has both an API key and a model secret, so no integration test ran."

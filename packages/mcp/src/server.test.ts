@@ -6,7 +6,13 @@ import type { AuditEventInput } from '@arp/security';
 import { createFixtureServices } from './fixtures';
 import { createMcpServer } from './server';
 
-const ALL: Permission[] = ['system:read', 'agents:read', 'gateway:read', 'session:read'];
+const ALL: Permission[] = [
+  'system:read',
+  'agents:read',
+  'gateway:read',
+  'session:read',
+  'providers:invoke',
+];
 
 async function connect(permissions: Permission[] = ALL) {
   const events: AuditEventInput[] = [];
@@ -39,7 +45,7 @@ async function settle(call: Promise<unknown>): Promise<{ failed: boolean; value:
 }
 
 describe('MCP server over an in-memory transport', () => {
-  it('lists the four tools with input and output schemas', async () => {
+  it('lists every tool with input and output schemas', async () => {
     const { client } = await connect();
     const { tools } = await client.listTools();
 
@@ -48,6 +54,7 @@ describe('MCP server over an in-memory transport', () => {
       'get_registered_agents',
       'get_session_status',
       'get_system_status',
+      'send_message',
     ]);
     for (const tool of tools) {
       expect(tool.inputSchema.type).toBe('object');
@@ -96,6 +103,27 @@ describe('MCP server over an in-memory transport', () => {
     expect(events).toContainEqual(
       expect.objectContaining({ tool: 'get_registered_agents', outcome: 'denied' }),
     );
+  });
+
+  it('calls send_message and returns structured content', async () => {
+    const { client } = await connect();
+    const result = await client.callTool({
+      name: 'send_message',
+      arguments: { agent: 'claude', message: 'hello' },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({ agent: 'claude', provider: 'anthropic' });
+  });
+
+  it('keeps send_message behind its permission', async () => {
+    const { client } = await connect(['system:read']);
+    const result = await client.callTool({
+      name: 'send_message',
+      arguments: { agent: 'claude', message: 'hello' },
+    });
+    const content = result.content as Array<{ type: string; text?: string }>;
+    expect(result.isError).toBe(true);
+    expect(errorCodeOf(content[0]?.text)).toBe('permission_denied');
   });
 
   it('reports a missing session through the transport without a session id', async () => {

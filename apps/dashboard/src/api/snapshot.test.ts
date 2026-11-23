@@ -12,7 +12,14 @@ const STATUS: SystemStatus = {
   uptimeSeconds: 3,
   nodeVersion: 'v20.19.0',
   components: { adminApi: 'configured', supabase: 'unconfigured', roblox: 'not_integrated' },
-  providers: [{ id: 'openai', displayName: 'OpenAI', state: 'unconfigured', adapter: 'placeholder' }],
+  providers: [
+    {
+      id: 'openai',
+      displayName: 'OpenAI',
+      state: 'unconfigured',
+      usage: { requests: 0, failures: 0, inputTokens: 0, outputTokens: 0 },
+    },
+  ],
   sessions: { active: 0, max: 10 },
   toolCount: 4,
   warnings: [],

@@ -6,23 +6,67 @@ export const ProviderIdSchema = z.enum(['openai', 'anthropic', 'gemini']);
 export type ProviderId = z.infer<typeof ProviderIdSchema>;
 export const PROVIDER_IDS = ProviderIdSchema.options;
 
-/** Phase 1 never contacts a provider, so there is deliberately no "connected" state. */
-export const ProviderStateSchema = z.enum(['unconfigured', 'configured']);
+/**
+ * "connected" means the most recent authenticated call to the provider succeeded.
+ * A configured key alone never produces it.
+ */
+export const ProviderStateSchema = z.enum([
+  'unconfigured',
+  'configured',
+  'connecting',
+  'connected',
+  'error',
+]);
 export type ProviderState = z.infer<typeof ProviderStateSchema>;
+
+export const ProviderFailureKindSchema = z.enum([
+  'auth_failed',
+  'rate_limited',
+  'timeout',
+  'unavailable',
+  'rejected',
+  'bad_response',
+]);
+export type ProviderFailureKind = z.infer<typeof ProviderFailureKindSchema>;
+
+export const TokenUsageSchema = z.object({
+  inputTokens: z.number().int().nonnegative().optional(),
+  outputTokens: z.number().int().nonnegative().optional(),
+});
+export type TokenUsage = z.infer<typeof TokenUsageSchema>;
 
 export const ProviderStatusSchema = z.object({
   id: ProviderIdSchema,
   displayName: z.string(),
   state: ProviderStateSchema,
-  adapter: z.literal('placeholder'),
+  model: z.string().optional(),
+  lastSuccessAt: z.string().optional(),
+  lastError: z.object({ kind: ProviderFailureKindSchema, at: z.string() }).optional(),
+  usage: z.object({
+    requests: z.number().int().nonnegative(),
+    failures: z.number().int().nonnegative(),
+    inputTokens: z.number().int().nonnegative(),
+    outputTokens: z.number().int().nonnegative(),
+  }),
 });
 export type ProviderStatus = z.infer<typeof ProviderStatusSchema>;
+
+export const ProviderReplySchema = z.object({
+  agent: z.string(),
+  provider: ProviderIdSchema,
+  model: z.string(),
+  text: z.string(),
+  finishReason: z.string().optional(),
+  usage: TokenUsageSchema.optional(),
+});
+export type ProviderReply = z.infer<typeof ProviderReplySchema>;
 
 export const AgentSummarySchema = z.object({
   id: z.string(),
   displayName: z.string(),
   provider: ProviderIdSchema,
   providerState: ProviderStateSchema,
+  model: z.string().optional(),
   gatewayCredential: z.enum(['configured', 'missing']),
   permissions: z.array(PermissionSchema),
 });

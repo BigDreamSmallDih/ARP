@@ -8,7 +8,11 @@ export const ErrorCodeSchema = z.enum([
   'not_found',
   'session_not_found',
   'session_limit_reached',
-  'not_implemented',
+  'rate_limited',
+  'cancelled',
+  'provider_not_configured',
+  'provider_timeout',
+  'provider_error',
   'admin_not_configured',
   'internal_error',
 ]);
@@ -23,7 +27,11 @@ const HTTP_STATUS: Record<ErrorCode, number> = {
   not_found: 404,
   session_not_found: 404,
   session_limit_reached: 503,
-  not_implemented: 501,
+  rate_limited: 429,
+  cancelled: 499,
+  provider_not_configured: 503,
+  provider_timeout: 504,
+  provider_error: 502,
   admin_not_configured: 503,
   internal_error: 500,
 };
@@ -31,17 +39,20 @@ const HTTP_STATUS: Record<ErrorCode, number> = {
 export interface GatewayErrorOptions {
   details?: unknown;
   cause?: unknown;
+  retryAfterSeconds?: number;
 }
 
 export class GatewayError extends Error {
   readonly code: ErrorCode;
   readonly details: unknown;
+  readonly retryAfterSeconds: number | undefined;
 
   constructor(code: ErrorCode, message: string, options: GatewayErrorOptions = {}) {
     super(message, { cause: options.cause });
     this.name = 'GatewayError';
     this.code = code;
     this.details = options.details;
+    this.retryAfterSeconds = options.retryAfterSeconds;
   }
 
   get httpStatus(): number {
@@ -54,6 +65,7 @@ export const ErrorBodySchema = z.object({
     code: ErrorCodeSchema,
     message: z.string(),
     requestId: z.string().optional(),
+    retryAfterSeconds: z.number().int().positive().optional(),
     details: z.unknown().optional(),
   }),
 });
@@ -64,6 +76,7 @@ export type ErrorBody = z.infer<typeof ErrorBodySchema>;
 export function toErrorBody(error: GatewayError, requestId?: string): ErrorBody {
   const body: ErrorBody['error'] = { code: error.code, message: error.message };
   if (requestId !== undefined) body.requestId = requestId;
+  if (error.retryAfterSeconds !== undefined) body.retryAfterSeconds = error.retryAfterSeconds;
   if (error.code === 'invalid_request' && error.details !== undefined) {
     body.details = error.details;
   }

@@ -43,7 +43,7 @@ export function Health({ snapshot }: { snapshot: Snapshot }) {
                 <span>Supabase</span>
                 <span>
                   <Badge presentation={componentPresentation(status.components.supabase)} />{' '}
-                  <span className="muted small">not used in Phase 1</span>
+                  <span className="muted small">not used yet</span>
                 </span>
               </li>
               <li>

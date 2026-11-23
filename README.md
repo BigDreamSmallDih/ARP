@@ -7,39 +7,43 @@ The center of the design is a **Central MCP Gateway**: one authenticated Model C
 that agents connect to, with an agent identity and permission model, sessions, an audit trail, and a
 tool registry.
 
-## Status: Phase 1 (foundation)
+## Status: Phase 2 (provider integration)
 
 What exists and what does not, stated plainly:
 
 | Area | State |
 | --- | --- |
 | MCP gateway (Streamable HTTP, sessions, auth, audit, errors) | Implemented |
-| Tool registry with four read-only demonstration tools | Implemented |
-| Dashboard (Overview, AI Agents, MCP Gateway, System Health, Settings) | Implemented |
-| Provider adapters for OpenAI, Anthropic, Gemini | **Placeholders.** They report whether an API key is set and refuse every call |
-| Real provider API calls | Not implemented |
+| Provider adapters for OpenAI, Anthropic Claude and Google Gemini | Implemented with `fetch` against the official REST APIs. Verified by mocked unit tests; **not yet run against the real APIs** (see [docs/TESTING.md](docs/TESTING.md)) |
+| `send_message` tool routing a message to the provider behind an agent | Implemented |
+| Provider state (`unconfigured`, `configured`, `connecting`, `connected`, `error`) | Implemented. `connected` only after a real authenticated call succeeded |
+| Rate limiting, authentication lockout, request size limit | Implemented, per process, in memory |
+| Dashboard (Overview, AI Agents, MCP Gateway, System Health, Settings) | Implemented; shows provider state and model |
+| HTTPS | Reverse proxy examples in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) and `deploy/Caddyfile`; not tested by CI |
+| Streaming, model tool calling, conversation memory, AI identity | Not implemented (later phases) |
 | Roblox integration of any kind | **Not implemented** |
 | Supabase persistence | Not implemented. Schema and configuration only |
 | Offline support / service worker in the dashboard | Not implemented. Manifest and icons only |
-
-The dashboard shows a provider as at most "Key set, not verified". It never shows "connected", because
-nothing connects to a provider yet.
 
 ## Repository layout
 
 ```
 apps/dashboard/      React + Vite dashboard (PWA manifest and icons, no service worker yet)
-backend/gateway/     Fastify server: config, sessions, MCP over HTTP, admin API
-backend/agents/      Agent roster, agent registry, placeholder provider adapters
-backend/security/    Token digests, permission checks, audit log
+backend/gateway/     Fastify server: config, sessions, MCP over HTTP, admin API, rate limiting
+backend/agents/      Agent roster, agent registry, OpenAI / Claude / Gemini provider adapters
+backend/security/    Token digests, permission checks, audit log, rate limiter, Secret wrapper
 packages/shared/     Zod schemas and error model shared by backend and dashboard
 packages/mcp/        Tool definitions, tool execution pipeline, MCP server factory
 supabase/            SQL migration and notes (not wired in yet)
-.github/workflows/   bootstrap.yml (lockfile + full check) and ci.yml
+docs/                PROVIDERS.md, DEPLOYMENT.md, TESTING.md
+deploy/              Caddyfile example for HTTPS
+.github/workflows/   bootstrap.yml (lockfile), ci.yml, integration.yml (manual, real providers)
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for how the pieces fit together and [SECURITY.md](SECURITY.md)
-for the security model.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for how the pieces fit together, [SECURITY.md](SECURITY.md) for
+the security model, [docs/PROVIDERS.md](docs/PROVIDERS.md) to configure providers,
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) to deploy behind HTTPS, and [docs/TESTING.md](docs/TESTING.md)
+for what is tested and how.
 
 ## Getting started without a local development environment
 
@@ -82,7 +86,9 @@ documents every variable. The important ones:
 | --- | --- |
 | `GATEWAY_ADMIN_TOKEN` | Bearer token for `/api/*`, used by the dashboard. Unset disables the admin API |
 | `GATEWAY_TOKEN_CHATGPT`, `_CLAUDE`, `_GEMINI` | Bearer token each agent uses to connect to `/mcp`. All tokens must differ and be 32+ characters |
-| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` | Only checked for presence in Phase 1 |
+| `OPENAI_API_KEY` + `OPENAI_MODEL`, `ANTHROPIC_API_KEY` + `ANTHROPIC_MODEL`, `GEMINI_API_KEY` + `GEMINI_MODEL` | A provider works only when both its key and model are set. There are no default models. See [docs/PROVIDERS.md](docs/PROVIDERS.md) |
+| `RATE_LIMIT_PER_MINUTE`, `AUTH_FAILURE_LIMIT`, `PROVIDER_CALLS_PER_MINUTE` | Request, failed-login and provider-call limits |
+| `TRUST_PROXY` | `true` only behind your own reverse proxy |
 | `DASHBOARD_ORIGIN` | Browser origin allowed to call the gateway, when the dashboard is hosted separately |
 
 Generate a token with `openssl rand -hex 32`. Never commit a `.env` file.
@@ -94,7 +100,7 @@ authenticates with `Authorization: Bearer <agent token>`, sends `initialize`, an
 returned `Mcp-Session-Id` header on every request. A session belongs to the agent that created it and
 expires after the idle timeout.
 
-Tools available in Phase 1, all read-only:
+Tools:
 
 | Tool | Permission | Returns |
 | --- | --- | --- |
@@ -102,6 +108,7 @@ Tools available in Phase 1, all read-only:
 | `get_registered_agents` | `agents:read` | Agents, permissions and credential state; optional `provider` filter |
 | `get_gateway_info` | `gateway:read` | Version, transport, auth scheme, tools, session limits |
 | `get_session_status` | `session:read` | The caller's own session |
+| `send_message` | `providers:invoke` | Sends one message to the provider behind the named agent and returns its reply. **Billable** |
 
 Every response is validated against a Zod schema before it is returned.
 
@@ -114,6 +121,7 @@ Every response is validated against a Zod schema before it is returned.
 | `GET /api/agents` | admin token | Registered agents |
 | `GET /api/gateway` | admin token | Same data as `get_gateway_info` |
 | `GET /api/audit?limit=` | admin token | Recent audit events, newest first |
+| `POST /api/providers/{openai,anthropic,gemini}/verify` | admin token | Checks the provider key with a free request and updates the provider state |
 
 ## Dashboard hosting
 
@@ -124,12 +132,14 @@ session storage only.
 
 ## Known limitations
 
-- Audit events live in memory, bounded by `AUDIT_BUFFER_SIZE`, and are lost on restart.
-- Sessions live in memory, so a restart ends them and the gateway cannot run as multiple instances yet.
-- There is no rate limiting. Tokens are long random secrets, but put the gateway behind a proxy that
-  limits request rates and terminates TLS.
+- Audit events, sessions, provider state, usage counters and rate-limit windows live in memory and are
+  lost on restart. The gateway cannot run as multiple instances yet.
+- The gateway has no TLS of its own; use a reverse proxy ([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
+- The adapters have been tested only against mocked responses in CI. Run the manual
+  `Provider integration tests` workflow with your own keys to check them against the real APIs.
+- Each message is one stateless, non-streaming provider call.
 - The gateway does not serve the dashboard; they deploy separately.
-- Every Phase 1 permission is read-only and identical for all three agents.
+- The dashboard cannot trigger provider verification yet; use the `verify` endpoint.
 
 ## License
 

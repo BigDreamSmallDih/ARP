@@ -1,3 +1,4 @@
+import { inspect } from 'node:util';
 import { describe, expect, it } from 'vitest';
 import { ConfigError, loadConfig } from './config';
 import { testToken } from './test-support';
@@ -25,8 +26,14 @@ describe('loadConfig', () => {
       dashboardOrigin: undefined,
       sessions: { max: 100, idleTtlSeconds: 1800 },
       auditBufferSize: 500,
+      trustProxy: false,
+      bodyLimitBytes: 262_144,
+      providerMaxOutputTokens: 1_024,
+      limits: { requestsPerMinute: 120, authFailures: 10, providerCallsPerMinute: 20 },
     });
-    expect(config.providerKeysPresent).toEqual({ openai: false, anthropic: false, gemini: false });
+    for (const provider of Object.values(config.providers)) {
+      expect(provider).toMatchObject({ apiKey: undefined, model: undefined, timeoutMs: 30_000 });
+    }
   });
 
   it('treats empty strings as unset, as in a copied .env.example', () => {
@@ -41,7 +48,7 @@ describe('loadConfig', () => {
     expect(config.port).toBe(8787);
     expect(config.adminToken).toBeUndefined();
     expect(config.agentTokens.claude).toBeUndefined();
-    expect(config.providerKeysPresent.openai).toBe(false);
+    expect(config.providers.openai.apiKey).toBeUndefined();
   });
 
   it('reads explicit values', () => {
@@ -66,11 +73,39 @@ describe('loadConfig', () => {
     expect(config.agentTokens.gemini).toBe(testToken('gemini'));
   });
 
-  it('records only whether provider keys exist, never their values', () => {
+  it('holds provider keys as secrets that do not survive serialisation or inspection', () => {
     const apiKey = 'sk-test-this-value-must-not-be-kept';
-    const config = loadConfig({ OPENAI_API_KEY: apiKey, ANTHROPIC_API_KEY: apiKey });
-    expect(config.providerKeysPresent).toEqual({ openai: true, anthropic: true, gemini: false });
+    const config = loadConfig({
+      OPENAI_API_KEY: apiKey,
+      OPENAI_MODEL: 'model-a',
+      ANTHROPIC_API_KEY: apiKey + '2',
+    });
+
+    expect(config.providers.openai.apiKey?.reveal()).toBe(apiKey);
+    expect(config.providers.openai.model).toBe('model-a');
+    expect(config.providers.anthropic.model).toBeUndefined();
     expect(JSON.stringify(config)).not.toContain(apiKey);
+    expect(inspect(config, { depth: 6 })).not.toContain(apiKey);
+    expect(String(config.providers.openai.apiKey)).not.toContain(apiKey);
+  });
+
+  it('reads limits, proxy trust and timeouts', () => {
+    const config = loadConfig({
+      TRUST_PROXY: 'true',
+      REQUEST_BODY_LIMIT_BYTES: '4096',
+      RATE_LIMIT_PER_MINUTE: '30',
+      AUTH_FAILURE_LIMIT: '3',
+      PROVIDER_CALLS_PER_MINUTE: '5',
+      PROVIDER_TIMEOUT_MS: '5000',
+      PROVIDER_MAX_OUTPUT_TOKENS: '256',
+    });
+    expect(config).toMatchObject({
+      trustProxy: true,
+      bodyLimitBytes: 4096,
+      limits: { requestsPerMinute: 30, authFailures: 3, providerCallsPerMinute: 5 },
+      providerMaxOutputTokens: 256,
+    });
+    expect(config.providers.gemini.timeoutMs).toBe(5000);
   });
 
   it.each([
@@ -81,6 +116,15 @@ describe('loadConfig', () => {
     ['LOG_LEVEL', 'verbose'],
     ['MAX_SESSIONS', '0'],
     ['MAX_SESSIONS_PER_AGENT', '0'],
+    ['TRUST_PROXY', 'yes'],
+    ['PROVIDER_TIMEOUT_MS', '10'],
+    ['PROVIDER_MAX_OUTPUT_TOKENS', '100000'],
+    ['REQUEST_BODY_LIMIT_BYTES', '10'],
+    ['RATE_LIMIT_PER_MINUTE', '0'],
+    ['AUTH_FAILURE_LIMIT', '0'],
+    ['PROVIDER_CALLS_PER_MINUTE', '0'],
+    ['OPENAI_MODEL', 'name with spaces'],
+    ['GEMINI_MODEL', '../evil'],
     ['SESSION_IDLE_TTL_SECONDS', '5'],
     ['AUDIT_BUFFER_SIZE', '-1'],
     ['DASHBOARD_ORIGIN', 'not a url'],

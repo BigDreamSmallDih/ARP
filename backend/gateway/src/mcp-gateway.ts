@@ -7,6 +7,7 @@ import type { AgentIdentity, AgentRegistry } from '@arp/agents';
 import { createMcpServer, type GatewayServices } from '@arp/mcp';
 import { extractBearerToken, type AuditLog } from '@arp/security';
 import { GatewayError, toErrorBody } from '@arp/shared';
+import type { AuthFailureGuard } from './auth-guard';
 import type { SessionStore } from './session-store';
 
 export interface McpGatewayDeps {
@@ -14,6 +15,7 @@ export interface McpGatewayDeps {
   readonly agents: AgentRegistry;
   readonly services: GatewayServices;
   readonly audit: AuditLog;
+  readonly authGuard: AuthFailureGuard;
   readonly logger: FastifyBaseLogger;
 }
 
@@ -113,15 +115,11 @@ export class McpGateway {
   }
 
   private authenticate(request: FastifyRequest): AgentIdentity {
+    this.deps.authGuard.assertAllowed(request.ip, request.id);
     const token = extractBearerToken(request.headers.authorization);
     const agent = token === undefined ? undefined : this.deps.agents.authenticate(token);
     if (agent === undefined) {
-      this.deps.audit.record({
-        type: 'auth.failed',
-        outcome: 'denied',
-        errorCode: 'unauthorized',
-        requestId: request.id,
-      });
+      this.deps.authGuard.recordFailure(request.ip, request.id);
       throw new GatewayError('unauthorized', 'Missing or invalid agent credential');
     }
     return agent;

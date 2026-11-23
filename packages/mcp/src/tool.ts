@@ -7,6 +7,7 @@ import {
   type GatewayInfo,
   type Permission,
   type ProviderId,
+  type ProviderReply,
   type SessionStatus,
   type SystemStatus,
 } from '@arp/shared';
@@ -16,18 +17,31 @@ export interface ToolAgent {
   readonly permissions: readonly Permission[];
 }
 
+export interface SendMessageRequest {
+  readonly callerId: string;
+  readonly agent: string;
+  readonly message: string;
+  readonly system?: string | undefined;
+  readonly maxOutputTokens?: number | undefined;
+  readonly signal?: AbortSignal | undefined;
+}
+
 /** What the gateway exposes to tools. Tools never reach into gateway internals directly. */
 export interface GatewayServices {
   getSystemStatus(): SystemStatus;
   listAgents(provider?: ProviderId): AgentSummary[];
   getGatewayInfo(): GatewayInfo;
   getSessionStatus(sessionId: string): SessionStatus | undefined;
+  /** Routes the message to the provider behind the target agent. Billable. */
+  sendMessage(request: SendMessageRequest): Promise<ProviderReply>;
 }
 
 export interface ToolContext {
   readonly agent: ToolAgent;
   readonly sessionId: string | undefined;
   readonly services: GatewayServices;
+  /** Aborted when the MCP client cancels the call. */
+  readonly signal?: AbortSignal | undefined;
 }
 
 export type AuditFn = (event: AuditEventInput) => void;

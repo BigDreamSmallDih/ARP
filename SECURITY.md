@@ -12,8 +12,9 @@ vulnerability.
   built only for experiences where it is officially permitted, and does not exist yet.
 - No secrets in the repository. `.env` files are ignored by Git; `.env.example` contains only empty
   placeholders.
-- Provider calls are not implemented. Provider API keys are not loaded into memory beyond a
-  "key is present" flag.
+- Provider API keys exist only in the gateway process. They are held in a `Secret` that serialises as
+  `[redacted]`, are sent only to the provider's own HTTPS endpoint in a request header, and never appear
+  in responses, tool output, audit events, errors or logs.
 
 ## How the gateway protects itself
 
@@ -30,7 +31,21 @@ token with that session id is refused and audited. Sessions expire after an idle
 `MAX_SESSIONS` overall and `MAX_SESSIONS_PER_AGENT` per agent, and are closed on shutdown.
 
 **Permissions.** Every tool declares a required permission, checked before input is parsed or the
-handler runs. Phase 1 has read-only permissions only.
+handler runs. Four are read-only. `providers:invoke`, which allows billable provider calls, is granted
+to agents by name in the roster.
+
+**Rate limiting.** Requests per client address per minute (`RATE_LIMIT_PER_MINUTE`, `/health`
+excluded), failed authentications per client address per 15 minutes (`AUTH_FAILURE_LIMIT`), and provider
+calls per calling agent per minute (`PROVIDER_CALLS_PER_MINUTE`). The failure lockout is checked before
+the credential is compared, so it also stops token guessing. Refusals are `429` with `Retry-After`.
+Limits are per process and in memory.
+
+**Request size.** Bodies above `REQUEST_BODY_LIMIT_BYTES` are rejected. Tool inputs have their own
+length limits (16,000 characters per message, 4,000 for a system prompt, 8,192 output tokens).
+
+**Provider calls.** Every call has a timeout (`PROVIDER_TIMEOUT_MS`) and stops when the MCP client
+cancels. Output tokens are capped by `PROVIDER_MAX_OUTPUT_TOKENS`. The gateway never retries. Error
+messages contain only the HTTP status, never the provider's response body.
 
 **Validation.** Environment variables, tool inputs, tool outputs, admin API query parameters and the
 dashboard's reads of gateway responses are all validated with Zod.
@@ -39,7 +54,8 @@ dashboard's reads of gateway responses are all validated with Zod.
 credential values never appear in responses. Validation details are returned only for
 `invalid_request`, where they describe the caller's own input.
 
-**Logging.** Requests are logged with the `Authorization` header redacted. Audit events record who did
+**Logging.** Requests are logged without their headers, and `Authorization`, `X-Api-Key` and
+`X-Goog-Api-Key` are also on the redaction list. Audit events record who did
 what and the outcome, and never contain tokens or tool payloads. Failed authentications are kept in
 a separate, smaller in-memory buffer so unauthenticated traffic cannot evict other events.
 
@@ -47,14 +63,21 @@ a separate, smaller in-memory buffer so unauthenticated traffic cannot evict oth
 origin with `GET` and `OPTIONS`. The dashboard keeps the admin token in session storage only, so it is
 cleared when the tab closes.
 
-## What Phase 1 does not do
+## Known gaps
 
 Be aware of these before exposing a gateway to a network:
 
-- **No rate limiting or lockout.** Run the gateway behind a reverse proxy or platform that limits
-  request rates.
-- **No TLS.** Terminate TLS in front of the gateway. Bearer tokens must never travel over plain HTTP on
-  an untrusted network.
+- **No TLS in the gateway.** Terminate TLS in a reverse proxy (see
+  [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)). Bearer tokens and provider traffic must never cross an
+  untrusted network unencrypted.
+- **Rate limits and lockouts are per process.** They reset on restart. Behind a proxy, set
+  `TRUST_PROXY=true`, and only then. With it off, every client behind the proxy shares one address, so
+  one attacker's failed logins can lock out the owner. With it on while the gateway is directly
+  reachable, a client can forge `X-Forwarded-For` to avoid limits.
+- **A lockout also blocks the valid token** from that address until the window passes.
+- **Usage and cost.** Token counts are in memory. Real spending limits must be set at the provider.
+- **Provider integration is verified only by mocks in CI.** The optional live workflow is the only test
+  against the real APIs.
 - **No persistence.** Audit events and sessions are in memory and are lost on restart.
 - **No token rotation tooling.** Rotate by changing the environment variable and restarting, which ends
   all sessions.

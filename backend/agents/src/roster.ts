@@ -7,11 +7,15 @@ export interface AgentDefinition {
   readonly permissions: readonly Permission[];
 }
 
-/** Every Phase 1 permission is read-only, so each agent gets all of them. */
-const READ_ONLY: readonly Permission[] = PermissionSchema.options;
+const READ_ONLY: readonly Permission[] = PermissionSchema.options.filter((permission) =>
+  permission.endsWith(':read'),
+);
+
+/** Calling a provider is billable, so it is granted by name and not as part of the read set. */
+const DEFAULT_PERMISSIONS: readonly Permission[] = [...READ_ONLY, 'providers:invoke'];
 
 export const AGENT_ROSTER: readonly AgentDefinition[] = [
-  { id: 'chatgpt', displayName: 'ChatGPT', provider: 'openai', permissions: READ_ONLY },
-  { id: 'claude', displayName: 'Claude', provider: 'anthropic', permissions: READ_ONLY },
-  { id: 'gemini', displayName: 'Gemini', provider: 'gemini', permissions: READ_ONLY },
+  { id: 'chatgpt', displayName: 'ChatGPT', provider: 'openai', permissions: DEFAULT_PERMISSIONS },
+  { id: 'claude', displayName: 'Claude', provider: 'anthropic', permissions: DEFAULT_PERMISSIONS },
+  { id: 'gemini', displayName: 'Gemini', provider: 'gemini', permissions: DEFAULT_PERMISSIONS },
 ];

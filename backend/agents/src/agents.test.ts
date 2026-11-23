@@ -1,39 +1,37 @@
 import { describe, expect, it } from 'vitest';
-import { GatewayError } from '@arp/shared';
-import { AGENT_ROSTER, AgentRegistry, createProviderAdapters } from './index';
-
-const NONE = { openai: false, anthropic: false, gemini: false };
+import { Secret } from '@arp/security';
+import type { ProviderId } from '@arp/shared';
+import {
+  AGENT_ROSTER,
+  AgentRegistry,
+  createProviderAdapters,
+  type FetchLike,
+  type ProviderSettings,
+} from './index';
 
 function token(label: string): string {
   return `${label}-`.padEnd(40, 'x');
 }
 
-describe('placeholder provider adapters', () => {
-  it('report unconfigured when no key is present', () => {
-    const adapters = createProviderAdapters(NONE);
-    for (const adapter of Object.values(adapters)) {
-      expect(adapter.status()).toMatchObject({ state: 'unconfigured', adapter: 'placeholder' });
-    }
-  });
+function settings(configured: boolean): ProviderSettings {
+  return {
+    apiKey: configured ? new Secret('test-api-key-not-real') : undefined,
+    model: configured ? 'test-model' : undefined,
+    timeoutMs: 1_000,
+  };
+}
 
-  it('report configured, never connected, when a key is present', () => {
-    const adapters = createProviderAdapters({ openai: true, anthropic: false, gemini: false });
-    expect(adapters.openai.status().state).toBe('configured');
-    expect(adapters.anthropic.status().state).toBe('unconfigured');
-  });
+const NO_NETWORK: FetchLike = () => Promise.reject(new Error('the registry tests must not call a provider'));
 
-  it('refuse to call the provider', async () => {
-    const adapters = createProviderAdapters({ openai: true, anthropic: true, gemini: true });
-    for (const adapter of Object.values(adapters)) {
-      const failure = await adapter.invoke({ prompt: 'hello' }).catch((error: unknown) => error);
-      expect(failure).toBeInstanceOf(GatewayError);
-      expect((failure as GatewayError).code).toBe('not_implemented');
-    }
-  });
-});
+function adaptersWith(configured: Record<ProviderId, boolean>) {
+  return createProviderAdapters(
+    { openai: settings(configured.openai), anthropic: settings(configured.anthropic), gemini: settings(configured.gemini) },
+    NO_NETWORK,
+  );
+}
 
 describe('AgentRegistry', () => {
-  const adapters = createProviderAdapters({ openai: true, anthropic: false, gemini: false });
+  const adapters = adaptersWith({ openai: true, anthropic: false, gemini: false });
 
   it('authenticates an agent by its gateway token', () => {
     const registry = new AgentRegistry(
@@ -94,9 +92,30 @@ describe('AgentRegistry', () => {
     expect(registry.get('nobody')).toBeUndefined();
   });
 
-  it('gives every Phase 1 agent read-only permissions', () => {
+  it('shows each agent its provider model without exposing any key', () => {
+    const registry = new AgentRegistry(AGENT_ROSTER, {}, adapters);
+    expect(registry.get('chatgpt')?.model).toBe('test-model');
+    expect(registry.get('claude')?.model).toBeUndefined();
+    expect(JSON.stringify(registry.list())).not.toContain('test-api-key-not-real');
+  });
+
+  it('resolves an agent to its own provider adapter', () => {
+    const registry = new AgentRegistry(AGENT_ROSTER, {}, adapters);
+    expect(registry.resolve('claude')?.adapter.id).toBe('anthropic');
+    expect(registry.resolve('gemini')?.adapter.id).toBe('gemini');
+    expect(registry.resolve('chatgpt')?.agent.provider).toBe('openai');
+    expect(registry.resolve('nobody')).toBeUndefined();
+  });
+
+  it('gives every agent the read permissions and the explicit provider permission', () => {
     for (const agent of AGENT_ROSTER) {
-      expect(agent.permissions.every((permission) => permission.endsWith(':read'))).toBe(true);
+      expect([...agent.permissions].sort()).toEqual([
+        'agents:read',
+        'gateway:read',
+        'providers:invoke',
+        'session:read',
+        'system:read',
+      ]);
     }
   });
 });
